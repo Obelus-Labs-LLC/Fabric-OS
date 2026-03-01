@@ -2,7 +2,22 @@
 target/
 fabric-os.iso
 iso_root/boot/fabric-kernel
-iso_root/EFI/BOOT/BOOTX64.EFI
+iso_root/EFI/BOOT/
+
+# Limine binaries (fetched at build time)
+iso_root/boot/limine/*.bin
+iso_root/boot/limine/*.sys
+
+# OVMF firmware copies
+ovmf_vars.fd
+
+# Debug / crash logs
+qemu_debug.log
+rustc-ice-*.txt
+kernel/rustc-ice-*.txt
+
+# Unused target specs
+kernel/targets/
 
 # IDE
 .vscode/

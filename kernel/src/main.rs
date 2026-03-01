@@ -1,0 +1,206 @@
+#![no_std]
+#![no_main]
+
+extern crate alloc;
+
+mod memory;
+mod ocrb;
+mod panic;
+mod serial;
+use limine::BaseRevision;
+use limine::request::{MemoryMapRequest, HhdmRequest};
+
+#[used]
+static BASE_REVISION: BaseRevision = BaseRevision::new();
+
+#[used]
+static MEMORY_MAP: MemoryMapRequest = MemoryMapRequest::new();
+
+#[used]
+static HHDM: HhdmRequest = HhdmRequest::new();
+
+#[no_mangle]
+extern "C" fn _start() -> ! {
+    serial::init();
+
+    serial_println!("[FABRIC] ============================================");
+    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 0 (Bare Metal)");
+    serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
+    serial_println!("[FABRIC]   (c) Obelus Labs LLC");
+    serial_println!("[FABRIC] ============================================");
+    serial_println!("[FABRIC] Serial console initialized (COM1, 115200 8N1)");
+
+    assert!(BASE_REVISION.is_supported());
+    serial_println!("[FABRIC] Limine boot protocol revision verified");
+
+    // Initialize Higher-Half Direct Map
+    let hhdm_response = HHDM.get_response().expect("HHDM response missing");
+    let hhdm_offset = hhdm_response.offset();
+    memory::init_hhdm(hhdm_offset);
+    serial_println!();
+    serial_println!("[VMEM] Higher-Half Direct Map offset: 0x{:x}", hhdm_offset);
+
+    // Parse and display memory map
+    let mmap_response = MEMORY_MAP.get_response().expect("Memory map missing");
+    let entries = mmap_response.entries();
+
+    serial_println!();
+    serial_println!("[MEMORY] Scanning physical memory map...");
+
+    let mut usable_regions = [(0u64, 0u64); 32];
+    let mut region_count = 0;
+    let mut total_usable: u64 = 0;
+
+    for entry in entries {
+        let kind_str = entry_type_name(entry.entry_type);
+        let size_kib = entry.length / 1024;
+
+        serial_println!(
+            "[MEMORY] Region 0x{:016x}-0x{:016x}: {} ({} KiB)",
+            entry.base,
+            entry.base + entry.length - 1,
+            kind_str,
+            size_kib
+        );
+
+        if entry.entry_type == limine::memory_map::EntryType::USABLE {
+            if region_count < usable_regions.len() {
+                usable_regions[region_count] = (entry.base, entry.length);
+                region_count += 1;
+            }
+            total_usable += entry.length;
+        }
+    }
+
+    let total_frames = total_usable / memory::PAGE_SIZE as u64;
+    serial_println!(
+        "[MEMORY] Total usable: {} MiB ({} frames)",
+        total_usable / (1024 * 1024),
+        total_frames
+    );
+
+    // Initialize buddy frame allocator
+    serial_println!();
+    memory::frame::init(&usable_regions[..region_count]);
+
+    // Frame allocator self-test
+    serial_println!();
+    if let Some(frame) = memory::frame::allocate_frame() {
+        serial_println!("[MEMORY] Self-test: allocated frame at {}", frame);
+        memory::frame::deallocate_frame(frame);
+        serial_println!("[MEMORY] Self-test: deallocated frame — OK");
+    } else {
+        serial_println!("[MEMORY] Self-test: FAILED — could not allocate frame");
+    }
+
+    // Page mapper self-test
+    serial_println!();
+    serial_println!("[VMEM] Page mapper initialized");
+    vmem_self_test();
+
+    // Initialize kernel heap
+    serial_println!();
+    memory::heap::init();
+    heap_self_test();
+
+    // OCRB Memory Stress Gate
+    serial_println!();
+    ocrb::run_phase0_gate();
+
+    serial_println!();
+    serial_println!("[FABRIC] Phase 0 complete. Kernel alive and verified.");
+    serial_println!("[FABRIC] Halting.");
+
+    halt();
+}
+
+fn entry_type_name(t: limine::memory_map::EntryType) -> &'static str {
+    use limine::memory_map::EntryType;
+    match t {
+        EntryType::USABLE => "Usable",
+        EntryType::RESERVED => "Reserved",
+        EntryType::ACPI_RECLAIMABLE => "ACPI Reclaimable",
+        EntryType::ACPI_NVS => "ACPI NVS",
+        EntryType::BAD_MEMORY => "Bad Memory",
+        EntryType::BOOTLOADER_RECLAIMABLE => "Bootloader Reclaimable",
+        EntryType::EXECUTABLE_AND_MODULES => "Kernel/Modules",
+        EntryType::FRAMEBUFFER => "Framebuffer",
+        _ => "Unknown",
+    }
+}
+
+fn vmem_self_test() {
+    use memory::page_table::PageTableFlags;
+    use memory::VirtAddr;
+
+    // Pick a virtual address in an unused region for testing
+    let test_virt = VirtAddr::new(0xFFFF_FFFF_C000_0000);
+
+    // Allocate a physical frame to map
+    let test_phys = memory::frame::allocate_frame().expect("alloc frame for vmem test");
+
+    // Map it
+    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+    memory::mapper::map(test_virt, test_phys, flags).expect("map failed");
+
+    // Write a value through the virtual address
+    unsafe {
+        let ptr = test_virt.as_u64() as *mut u64;
+        *ptr = 0xDEAD_BEEF_CAFE_BABE;
+    }
+
+    // Read it back
+    let read_val = unsafe { *(test_virt.as_u64() as *const u64) };
+    assert_eq!(read_val, 0xDEAD_BEEF_CAFE_BABE);
+
+    // Verify translate returns the right physical address
+    let translated = memory::mapper::translate(test_virt);
+    assert!(translated.is_some());
+
+    // Unmap
+    let unmapped_phys = memory::mapper::unmap(test_virt).expect("unmap failed");
+    assert_eq!(unmapped_phys, test_phys);
+
+    // Verify translate returns None now
+    let after_unmap = memory::mapper::translate(test_virt);
+    assert!(after_unmap.is_none());
+
+    // Return frame to allocator
+    memory::frame::deallocate_frame(test_phys);
+
+    serial_println!("[VMEM] Self-test: map/write/read/unmap — OK");
+}
+
+fn heap_self_test() {
+    use alloc::{vec, vec::Vec, string::String, boxed::Box};
+
+    // Test Vec
+    let mut v: Vec<u32> = vec![1, 2, 3, 4, 5];
+    v.push(6);
+    assert_eq!(v.len(), 6);
+    assert_eq!(v[5], 6);
+
+    // Test Box
+    let b = Box::new(42u64);
+    assert_eq!(*b, 42);
+    drop(b);
+
+    // Test String
+    let s = String::from("Fabric OS");
+    assert_eq!(s.len(), 9);
+
+    // Test drop and realloc
+    drop(v);
+    drop(s);
+    let v2: Vec<u8> = vec![0xAB; 256];
+    assert_eq!(v2.len(), 256);
+    assert_eq!(v2[0], 0xAB);
+
+    serial_println!("[HEAP] Self-test: Vec, Box, String — OK");
+}
+
+fn halt() -> ! {
+    loop {
+        core::hint::spin_loop();
+    }
+}

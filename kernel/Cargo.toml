@@ -1,0 +1,18 @@
+[package]
+name = "fabric-kernel"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dshon Smith <admin@obeluslabs.com>"]
+
+[dependencies]
+limine = "0.5"
+spin = "0.9"
+linked_list_allocator = "0.10"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = 2
+lto = true
