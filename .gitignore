@@ -1,0 +1,13 @@
+# Build artifacts
+target/
+fabric-os.iso
+iso_root/boot/fabric-kernel
+iso_root/EFI/BOOT/BOOTX64.EFI
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,752 @@
+# FABRIC OS — PHASE 0: BARE METAL BOOT
+## Complete Implementation Specification
+
+**Prerequisite:** Read `README.md` in this directory for full project context.
+**Goal:** Boot Fabric OS in QEMU, set up memory management, print to serial.
+**Language:** Rust (nightly, no_std)
+**Bootloader:** Limine (v8.x)
+**Test VM:** QEMU x86_64
+**Done When:** Boots in QEMU, detects physical memory, allocates/frees pages, maps virtual memory, has a working kernel heap, prints to serial console, passes OCRB memory stress gate.
+
+---
+
+## PART 1: DEVELOPMENT ENVIRONMENT SETUP
+
+### 1.1 — Platform Decision
+
+**Recommended: WSL2 (Ubuntu 22.04+) on Windows**
+
+OS development tooling is Linux-native. WSL2 gives you:
+- Native Linux build environment
+- QEMU runs natively (no Windows path headaches)
+- All cross-compilation tools work out of the box
+- Can still edit code from Windows (VS Code + WSL remote)
+
+Alternative: Native Windows with MSYS2/Git Bash works but you'll fight path issues. WSL2 is the right call.
+
+### 1.2 — Install WSL2 (if not already)
+
+```bash
+# From Windows PowerShell (admin):
+wsl --install -d Ubuntu-22.04
+
+# After install, open Ubuntu terminal and update:
+sudo apt update && sudo apt upgrade -y
+```
+
+### 1.3 — Install Rust Nightly
+
+```bash
+# Install rustup
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Source the environment
+source ~/.cargo/env
+
+# Install nightly toolchain
+rustup toolchain install nightly
+
+# Set nightly as default for this project (we'll do this per-project later)
+# But globally for now:
+rustup default nightly
+
+# Add required components
+rustup component add rust-src          # Source code for core/alloc (needed for build-std)
+rustup component add llvm-tools-preview # For objcopy, objdump, etc.
+
+# Verify
+rustc --version  # Should show nightly-YYYY-MM-DD
+cargo --version
+```
+
+### 1.4 — Install QEMU
+
+```bash
+# Ubuntu/WSL2:
+sudo apt install qemu-system-x86 -y
+
+# Verify
+qemu-system-x86_64 --version
+```
+
+### 1.5 — Install OVMF (UEFI Firmware for QEMU)
+
+```bash
+sudo apt install ovmf -y
+
+# OVMF firmware will be at: /usr/share/OVMF/OVMF_CODE.fd
+# Verify it exists:
+ls -la /usr/share/OVMF/OVMF_CODE.fd
+```
+
+### 1.6 — Install Build Utilities
+
+```bash
+sudo apt install -y \
+  build-essential \
+  nasm \
+  xorriso \
+  mtools \
+  git \
+  curl \
+  gdb
+```
+
+### 1.7 — Install Limine Bootloader
+
+```bash
+# Clone Limine v8.x (latest stable)
+git clone https://github.com/limine-bootloader/limine.git --branch=v8.x-binary --depth=1 ~/limine
+
+# Build the limine utility
+cd ~/limine
+make
+
+# Verify
+ls -la limine  # Should see the `limine` binary
+```
+
+### 1.8 — Environment Verification Checklist
+
+Run each of these. All must succeed before proceeding:
+
+```bash
+rustc +nightly --version          # nightly-2026-XX-XX or later
+cargo +nightly --version          # same date
+rustup component list --installed | grep rust-src      # rust-src installed
+rustup component list --installed | grep llvm-tools    # llvm-tools installed
+qemu-system-x86_64 --version     # QEMU 6.x or later
+ls /usr/share/OVMF/OVMF_CODE.fd  # OVMF exists
+ls ~/limine/limine                # Limine binary exists
+nasm --version                    # NASM assembler
+xorriso --version                 # ISO creation tool
+```
+
+**If all 8 checks pass, the environment is ready.**
+
+---
+
+## PART 2: PROJECT STRUCTURE
+
+### 2.1 — Directory Layout
+
+```
+FabricOS/
+├── README.md                    # Master context (already exists)
+├── PHASE_0_SPEC.context         # This file
+├── kernel/                      # The kernel crate
+│   ├── Cargo.toml
+│   ├── build.rs                 # Build script (linker script processing)
+│   ├── src/
+│   │   ├── main.rs              # Entry point (_start / kmain)
+│   │   ├── serial.rs            # Serial port output (COM1, 0x3F8)
+│   │   ├── panic.rs             # Panic handler (no_std requires this)
+│   │   ├── memory/
+│   │   │   ├── mod.rs           # Memory subsystem root
+│   │   │   ├── frame.rs         # Physical frame allocator (buddy system)
+│   │   │   ├── page_table.rs    # x86_64 4-level page tables
+│   │   │   ├── mapper.rs        # Virtual memory mapping API
+│   │   │   └── heap.rs          # Kernel heap allocator
+│   │   └── ocrb/
+│   │       ├── mod.rs           # OCRB test harness
+│   │       └── memory_stress.rs # Phase 0 memory stress tests
+│   ├── linker.ld                # Linker script (kernel memory layout)
+│   └── targets/
+│       └── x86_64-fabric.json   # Custom target specification
+├── iso_root/                    # Built ISO staging directory
+│   ├── boot/
+│   │   └── limine/
+│   │       └── limine.conf      # Limine bootloader configuration
+│   └── EFI/
+│       └── BOOT/
+│           └── BOOTX64.EFI      # Limine UEFI binary (copied during build)
+├── Makefile                     # Build + run commands
+└── rust-toolchain.toml          # Pin nightly toolchain
+```
+
+### 2.2 — rust-toolchain.toml
+
+```toml
+[toolchain]
+channel = "nightly"
+components = ["rust-src", "llvm-tools-preview"]
+```
+
+This pins the project to nightly and ensures components are installed automatically when anyone clones the repo.
+
+### 2.3 — Custom Target: targets/x86_64-fabric.json
+
+```json
+{
+    "llvm-target": "x86_64-unknown-none",
+    "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+    "arch": "x86_64",
+    "target-endian": "little",
+    "target-pointer-width": "64",
+    "target-c-int-width": "32",
+    "os": "none",
+    "executables": true,
+    "linker-flavor": "ld.lld",
+    "linker": "rust-lld",
+    "panic-strategy": "abort",
+    "disable-redzone": true,
+    "features": "-mmx,-sse,-sse2,+soft-float",
+    "pre-link-args": {
+        "ld.lld": ["-Tkernel/linker.ld"]
+    }
+}
+```
+
+**Why these settings:**
+- `panic-strategy: abort` — no unwinding in kernel, just halt
+- `disable-redzone: true` — red zone is unsafe in kernel code (interrupts can corrupt it)
+- `features: -mmx,-sse,-sse2,+soft-float` — disable SIMD in kernel (we'd need to save/restore SSE state on every interrupt otherwise). We'll enable SSE for userspace later.
+
+### 2.4 — kernel/Cargo.toml
+
+```toml
+[package]
+name = "fabric-kernel"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dshon Smith <admin@obeluslabs.com>"]
+
+[dependencies]
+limine = "0.3"              # Limine boot protocol structures
+spin = "0.9"                # Spinlock (no_std compatible)
+linked_list_allocator = "0.10"  # Heap allocator
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = 2               # Optimize but keep debuggability
+lto = true                  # Link-time optimization
+```
+
+### 2.5 — Linker Script: kernel/linker.ld
+
+```ld
+ENTRY(_start)
+
+PHDRS {
+    text    PT_LOAD;
+    rodata  PT_LOAD;
+    data    PT_LOAD;
+    bss     PT_LOAD;
+}
+
+SECTIONS {
+    /* Limine loads kernel at higher half */
+    . = 0xFFFFFFFF80000000;
+
+    .text : {
+        *(.text .text.*)
+    } :text
+
+    . = ALIGN(4096);
+
+    .rodata : {
+        *(.rodata .rodata.*)
+    } :rodata
+
+    . = ALIGN(4096);
+
+    .data : {
+        *(.data .data.*)
+    } :data
+
+    . = ALIGN(4096);
+
+    .bss : {
+        __bss_start = .;
+        *(.bss .bss.*)
+        *(COMMON)
+        __bss_end = .;
+    } :bss
+
+    /DISCARD/ : {
+        *(.eh_frame)
+        *(.note .note.*)
+        *(.comment)
+    }
+}
+```
+
+**Key:** Kernel is mapped at `0xFFFFFFFF80000000` (higher half). This is standard — lower half is for userspace later.
+
+### 2.6 — Limine Configuration: iso_root/boot/limine/limine.conf
+
+```
+timeout: 0
+
+/Fabric OS
+    protocol: limine
+    kernel_path: boot():/boot/fabric-kernel
+```
+
+### 2.7 — Makefile
+
+```makefile
+KERNEL_TARGET := kernel/targets/x86_64-fabric.json
+KERNEL_BIN := target/x86_64-fabric/release/fabric-kernel
+ISO := fabric-os.iso
+LIMINE_DIR := $(HOME)/limine
+OVMF := /usr/share/OVMF/OVMF_CODE.fd
+
+.PHONY: all build iso run run-debug clean ocrb
+
+all: run
+
+build:
+	cd kernel && cargo build \
+		--release \
+		--target targets/x86_64-fabric.json \
+		-Zbuild-std=core,alloc \
+		-Zbuild-std-features=compiler-builtins-mem
+
+iso: build
+	# Create ISO directory structure
+	mkdir -p iso_root/boot/limine
+	mkdir -p iso_root/EFI/BOOT
+	# Copy kernel binary
+	cp $(KERNEL_BIN) iso_root/boot/fabric-kernel
+	# Copy Limine files
+	cp $(LIMINE_DIR)/BOOTX64.EFI iso_root/EFI/BOOT/
+	cp $(LIMINE_DIR)/limine-bios.sys iso_root/boot/limine/ 2>/dev/null || true
+	cp $(LIMINE_DIR)/limine-bios-cd.bin iso_root/boot/limine/ 2>/dev/null || true
+	cp $(LIMINE_DIR)/limine-uefi-cd.bin iso_root/boot/limine/ 2>/dev/null || true
+	# Create ISO
+	xorriso -as mkisofs \
+		-b boot/limine/limine-bios-cd.bin \
+		-no-emul-boot -boot-load-size 4 -boot-info-table \
+		--efi-boot boot/limine/limine-uefi-cd.bin \
+		-efi-boot-part --efi-boot-image --protective-msdos-label \
+		iso_root -o $(ISO)
+	# Install Limine
+	$(LIMINE_DIR)/limine bios-install $(ISO) 2>/dev/null || true
+
+run: iso
+	qemu-system-x86_64 \
+		-bios $(OVMF) \
+		-cdrom $(ISO) \
+		-serial stdio \
+		-m 256M \
+		-no-reboot \
+		-no-shutdown
+
+run-debug: iso
+	qemu-system-x86_64 \
+		-bios $(OVMF) \
+		-cdrom $(ISO) \
+		-serial stdio \
+		-m 256M \
+		-no-reboot \
+		-no-shutdown \
+		-s -S
+
+ocrb: iso
+	qemu-system-x86_64 \
+		-bios $(OVMF) \
+		-cdrom $(ISO) \
+		-serial stdio \
+		-m 256M \
+		-no-reboot \
+		-no-shutdown \
+		-display none
+
+clean:
+	cd kernel && cargo clean
+	rm -rf iso_root/boot/fabric-kernel
+	rm -f $(ISO)
+```
+
+**Commands:**
+- `make build` — compile the kernel
+- `make iso` — build bootable ISO
+- `make run` — build + boot in QEMU (serial output to terminal)
+- `make run-debug` — boot with GDB server (attach with `gdb -ex "target remote :1234"`)
+- `make ocrb` — headless run for automated tests
+- `make clean` — clean everything
+
+---
+
+## PART 3: IMPLEMENTATION SEQUENCE
+
+Build these in exact order. Each step depends on the previous.
+
+### Step 1: Panic Handler + Entry Point
+
+**kernel/src/panic.rs:**
+Implement a #[panic_handler] that prints to serial (once serial exists) then halts with core::hint::spin_loop() in a loop. Initially just halt since serial isn't ready yet.
+
+**kernel/src/main.rs (skeleton):**
+- `#![no_std]` and `#![no_main]`
+- Declare Limine boot protocol requests: BaseRevision, MemoryMapRequest, HhdmRequest
+- `#[no_mangle] extern "C" fn _start() -> !` entry point
+- Assert BASE_REVISION.is_supported()
+- Halt loop at the end
+
+**Verify:** `make build` compiles without errors.
+
+### Step 2: Serial Output
+
+**kernel/src/serial.rs:**
+
+Implement COM1 serial port output (port 0x3F8). This is your console for everything in Phase 0.
+
+**What to implement:**
+- `SerialPort` struct wrapping port 0x3F8
+- `init()` — configure baud rate (115200), 8N1, FIFO
+- `write_byte(byte: u8)` — write one byte, busy-wait on transmit ready
+- `impl core::fmt::Write for SerialPort` — enables `write!()` macro
+- `serial_print!()` and `serial_println!()` macros (like `println!` but to serial)
+- Use `spin::Mutex` to make it thread-safe
+
+**Port I/O:** Use inline assembly for `inb` / `outb`:
+```rust
+unsafe fn outb(port: u16, value: u8) {
+    core::arch::asm!("out dx, al", in("dx") port, in("al") value);
+}
+
+unsafe fn inb(port: u16) -> u8 {
+    let value: u8;
+    core::arch::asm!("in al, dx", in("dx") port, out("al") value);
+    value
+}
+```
+
+**COM1 Init Sequence:**
+```
+Offset 1 (IER): 0x00   — Disable interrupts
+Offset 3 (LCR): 0x80   — Enable DLAB
+Offset 0 (DLL): 0x01   — Baud rate divisor low (115200)
+Offset 1 (DLM): 0x00   — Baud rate divisor high
+Offset 3 (LCR): 0x03   — 8 bits, no parity, 1 stop bit, DLAB off
+Offset 2 (FCR): 0xC7   — Enable FIFO, clear, 14-byte threshold
+Offset 4 (MCR): 0x0B   — IRQs enabled, RTS/DSR set
+```
+
+**Verify:** `make run` shows "Hello from Fabric OS" in terminal (serial output piped to stdio).
+
+**Milestone output:**
+```
+[FABRIC] Booting Fabric OS v0.1.0
+[FABRIC] Serial console initialized (COM1, 115200 8N1)
+[FABRIC] Limine boot protocol verified
+```
+
+### Step 3: Physical Frame Allocator
+
+**kernel/src/memory/frame.rs:**
+
+A buddy allocator for physical memory frames (4KiB pages).
+
+**3A — Parse Memory Map:**
+- Read MEMORY_MAP response from Limine
+- Limine gives a list of memory regions with types: Usable, Reserved, Bootloader Reclaimable, Kernel, etc.
+- Only use `Usable` regions for the frame allocator
+- Print memory map to serial:
+  ```
+  [MEMORY] Region 0x00000000-0x0009FFFF: Usable (640 KiB)
+  [MEMORY] Region 0x00100000-0x0FFFFFFF: Usable (255 MiB)
+  [MEMORY] Region 0x10000000-0x100FFFFF: Reserved (1 MiB)
+  ...
+  [MEMORY] Total usable: 255 MiB (65280 frames)
+  ```
+
+**3B — Buddy Allocator:**
+
+The buddy system manages physical frames in power-of-2 blocks.
+
+**Data structure:**
+```
+Order 0: 4 KiB blocks   (single frame)
+Order 1: 8 KiB blocks   (2 frames)
+Order 2: 16 KiB blocks  (4 frames)
+...
+Order N: 2^N * 4 KiB blocks
+
+Free lists: One linked list per order level.
+Bitmap: 1 bit per frame to track allocated/free.
+```
+
+**Operations:**
+- `allocate(order: usize) -> Option<PhysAddr>` — find smallest free block >= requested size, split if needed
+- `deallocate(addr: PhysAddr, order: usize)` — free block, merge with buddy if buddy is also free
+- `available_frames() -> usize` — count of free frames
+- `used_frames() -> usize` — count of allocated frames
+
+**Implementation notes:**
+- Bitmap (1 bit per frame) for tracking
+- Free list is an array of linked lists, one per order
+- Buddy address calculation: `buddy = addr XOR (1 << (order + 12))`
+- Minimum allocation: 1 frame (4 KiB)
+- Maximum order: depends on largest contiguous usable region
+
+**Verify:** Serial output shows alloc/dealloc/merge working.
+
+### Step 4: Virtual Memory
+
+**kernel/src/memory/page_table.rs + mapper.rs:**
+
+x86_64 uses 4-level page tables: PML4 -> PDPT -> PD -> PT -> Physical Frame.
+
+**4A — Page Table Structures:**
+
+PageTableEntry — a u64 wrapper with methods:
+- is_present(), set_addr(), set_flags(), addr(), flags()
+
+PageTableFlags — bitflags:
+```
+PRESENT       = 1 << 0
+WRITABLE      = 1 << 1
+USER          = 1 << 2
+WRITE_THROUGH = 1 << 3
+NO_CACHE      = 1 << 4
+ACCESSED      = 1 << 5
+DIRTY         = 1 << 6
+HUGE_PAGE     = 1 << 7
+GLOBAL        = 1 << 8
+NO_EXECUTE    = 1 << 63
+```
+
+PageTable — 512 entries, 4096-byte aligned.
+
+**4B — Higher Half Direct Map (HHDM):**
+Limine maps ALL physical memory at a fixed virtual offset. Read the offset from Limine's HHDM response.
+
+```rust
+fn phys_to_virt(phys: PhysAddr) -> VirtAddr {
+    VirtAddr(phys.0 + HHDM_OFFSET)
+}
+```
+
+**4C — Page Mapper:**
+- `map(virt, phys, flags, allocator) -> Result<(), MapError>` — walk/create page tables, set mapping
+- `unmap(virt) -> Result<PhysAddr, UnmapError>` — remove mapping, return frame
+- `translate(virt) -> Option<PhysAddr>` — walk tables, return physical address
+
+**4D — Virtual Address Breakdown:**
+```
+Bits 63-48: Sign extension (must match bit 47)
+Bits 47-39: PML4 index (9 bits, 512 entries)
+Bits 38-30: PDPT index (9 bits, 512 entries)
+Bits 29-21: PD index   (9 bits, 512 entries)
+Bits 20-12: PT index   (9 bits, 512 entries)
+Bits 11-0:  Page offset (12 bits, 4096 bytes)
+```
+
+When mapping: walk each level. If intermediate table missing, allocate a frame for it.
+
+**4E — TLB Invalidation:**
+After modifying page tables:
+```rust
+unsafe fn flush_tlb(addr: VirtAddr) {
+    core::arch::asm!("invlpg [{}]", in(reg) addr.0);
+}
+```
+
+**Verify:** Map/write/read/unmap cycle works correctly.
+
+### Step 5: Kernel Heap
+
+**kernel/src/memory/heap.rs:**
+
+A kernel heap enabling alloc::Vec, alloc::Box, alloc::String, etc.
+
+**5A — Heap Region:**
+```
+HEAP_START: 0xFFFFFFFF80400000
+HEAP_SIZE:  1 MiB (1048576 bytes)
+```
+
+Map these pages using page mapper + frame allocator.
+
+**5B — Allocator:**
+Use `linked_list_allocator` crate:
+- Create `#[global_allocator] static ALLOCATOR: LockedHeap`
+- In init_heap(): map HEAP_SIZE pages, then `ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE)`
+
+**5C — Enable alloc:**
+```rust
+extern crate alloc;
+use alloc::{vec, vec::Vec, string::String, boxed::Box};
+```
+
+**Verify:** Vec, Box, String allocations work. Drop + reallocation works.
+
+### Step 6: OCRB Memory Stress Gate
+
+**kernel/src/ocrb/mod.rs + memory_stress.rs:**
+
+The OCRB gate for Phase 0. Must score ORI >= 80 to pass.
+
+**Test Harness:**
+```rust
+struct OcrbResult {
+    test_name: &'static str,
+    passed: bool,
+    score: u8,        // 0-100
+    details: String,
+}
+
+fn run_phase0_gate() -> Vec<OcrbResult> { ... }
+```
+
+**Seven Tests:**
+
+**Test 1: Frame Alloc/Dealloc (weight: 15)**
+- Allocate 1000 frames, verify all unique addresses
+- Deallocate all, verify all returned to free pool
+- Score 100 if zero errors, deduct 10 per error
+
+**Test 2: Frame Stress (weight: 20)**
+- Allocate ALL available frames (fill memory)
+- Verify allocator returns None when exhausted
+- Deallocate all
+- Verify count returns to original
+- Score 100 if correct + completes in reasonable time
+
+**Test 3: No Double Allocation (weight: 20)**
+- Allocate 500 frames, store addresses
+- Allocate 500 more, verify NONE overlap with first set
+- Score 100 if zero overlaps, 0 if any overlap
+
+**Test 4: Buddy Merge (weight: 15)**
+- Allocate two adjacent order-0 blocks
+- Free both
+- Verify they merged into one order-1 block
+- Allocate one order-1 block, verify it gets the merged block
+- Score 100 if merge works correctly
+
+**Test 5: Page Map/Unmap (weight: 10)**
+- Map 100 pages to sequential frames
+- Write distinct values to each
+- Read back and verify
+- Unmap all, verify translate returns None
+- Score 100 if all correct
+
+**Test 6: Heap Stress (weight: 10)**
+- Allocate 1000 Vec<u8> of varying sizes (16 to 4096 bytes)
+- Drop every other one
+- Allocate 500 more
+- Drop all
+- Verify heap still functional
+- Score 100 if no panics
+
+**Test 7: Heap Fragmentation Resistance (weight: 10)**
+- Allocate 200 small (32-byte) boxes
+- Drop every other one (creates fragmentation)
+- Allocate 100 medium (128-byte) boxes
+- Score 100 if all fit, 50 if >80% fit, 0 if <80%
+
+**Scoring:**
+```
+ORI = Sum(test_score * weight) / Sum(weights)
+Gate: ORI >= 80 = PASS
+```
+
+---
+
+## PART 4: COMPLETE BOOT SEQUENCE
+
+When `make run` succeeds, this is the exact serial output expected:
+
+```
+[FABRIC] ============================================
+[FABRIC]   Fabric OS v0.1.0 — Phase 0 (Bare Metal)
+[FABRIC]   AI-Coordinated Microkernel Fabric
+[FABRIC]   (c) Obelus Labs LLC
+[FABRIC] ============================================
+[FABRIC] Serial console initialized (COM1, 115200 8N1)
+[FABRIC] Limine boot protocol revision verified
+
+[MEMORY] Scanning physical memory map...
+[MEMORY] Region 0x0000000000000000-0x000000000009FFFF: Usable (640 KiB)
+[MEMORY] Region 0x0000000000100000-0x000000000FFFFFFF: Usable (255 MiB)
+[MEMORY] ... (other regions)
+[MEMORY] Total usable: XXX MiB (XXXXX frames)
+
+[MEMORY] Buddy allocator initialized (max order: XX)
+[MEMORY] Free frames: XXXXX
+
+[VMEM] Higher-Half Direct Map offset: 0xFFFF800000000000
+[VMEM] Page mapper initialized
+[VMEM] Self-test: map/write/read/unmap — OK
+
+[HEAP] Kernel heap initialized: 1 MiB at 0xFFFFFFFF80400000
+[HEAP] Self-test: Vec, Box, String — OK
+
+[OCRB] Running Phase 0 Memory Stress Gate...
+[OCRB] Test 1/7: Frame Alloc/Dealloc — PASS (100/100)
+[OCRB] Test 2/7: Frame Stress — PASS (XX/100)
+[OCRB] Test 3/7: No Double Allocation — PASS (100/100)
+[OCRB] Test 4/7: Buddy Merge — PASS (XX/100)
+[OCRB] Test 5/7: Page Map/Unmap — PASS (XX/100)
+[OCRB] Test 6/7: Heap Stress — PASS (XX/100)
+[OCRB] Test 7/7: Heap Fragmentation — PASS (XX/100)
+[OCRB] Phase 0 ORI Score: XX/100
+[OCRB] *** PHASE 0 GATE: PASSED ***
+
+[FABRIC] Phase 0 complete. Kernel alive and verified.
+[FABRIC] Halting.
+```
+
+---
+
+## PART 5: DECISIONS ALREADY MADE (DO NOT SECOND-GUESS)
+
+These decisions were made during architecture design. The implementation AI should NOT:
+- Suggest using a different bootloader (it's Limine)
+- Suggest using an existing OS kernel or Linux base (this is from scratch)
+- Suggest using the x86_64 crate or bootloader crate (we use limine crate + raw page tables)
+- Suggest skipping the buddy allocator for a simpler bitmap allocator (buddy is the design)
+- Suggest BIOS boot instead of UEFI (it's UEFI via Limine)
+- Suggest adding networking, filesystems, or anything beyond memory in Phase 0
+- Change the linker script memory layout
+- Change the target specification
+
+**The implementation AI's job is to BUILD EXACTLY THIS SPEC. Not redesign it.**
+
+---
+
+## PART 6: KNOWN GOTCHAS
+
+1. **Rust nightly breakage:** Nightly Rust can break between versions. If `build-std` fails, try pinning to a specific nightly date in `rust-toolchain.toml`: `channel = "nightly-2026-02-15"`
+
+2. **Limine crate version:** The `limine` crate must match the Limine bootloader version. Limine v8.x protocol uses `limine = "0.3"` crate (check https://github.com/limine-bootloader/limine-rs for latest compatibility).
+
+3. **QEMU OVMF path:** On some systems OVMF is at `/usr/share/OVMF/OVMF_CODE.fd`, on others `/usr/share/edk2/ovmf/OVMF_CODE.fd`. Update Makefile if needed.
+
+4. **WSL2 + QEMU display:** If QEMU complains about display, add `-display none` or install an X server. For Phase 0, we only use serial output so `-serial stdio` is all we need. Can add `-display none` if needed.
+
+5. **Physical memory in QEMU:** `-m 256M` gives 256 MiB RAM. The memory map will show usable regions within this. Some is reserved for UEFI firmware.
+
+6. **x86_64 canonical addresses:** Virtual addresses must be canonical (bits 63-48 must match bit 47). Higher-half addresses (0xFFFF...) are canonical. Do NOT use addresses in the non-canonical hole (0x0000800000000000 - 0xFFFF7FFFFFFFFFFF).
+
+7. **Spin loops:** Always use `core::hint::spin_loop()` in busy-wait loops. It emits the PAUSE instruction on x86, reducing power consumption and helping hyperthreaded CPUs.
+
+8. **build-std target path:** The cargo build command references `targets/x86_64-fabric.json` relative to the kernel/ directory. The linker script path in the target JSON is also relative to where cargo is invoked. Keep paths consistent.
+
+---
+
+## PART 7: IMPLEMENTATION ORDER SUMMARY
+
+```
+Step 1: panic.rs + main.rs skeleton          -> `make build` compiles
+Step 2: serial.rs (COM1 output)              -> `make run` prints "Hello from Fabric"
+Step 3: frame.rs (buddy allocator)           -> Serial shows memory map + alloc tests
+Step 4: page_table.rs + mapper.rs (VMM)      -> Serial shows map/translate/unmap tests
+Step 5: heap.rs (kernel heap)                -> Vec/Box/String work
+Step 6: ocrb/ (stress tests)                 -> ORI score printed, gate pass/fail
+```
+
+**Total estimated files:** 10-12 Rust source files, 1 Makefile, 1 linker script, 1 target JSON, 1 Cargo.toml, 1 toolchain TOML, 1 Limine config.
+
+**Total estimated lines of Rust:** 1500-2500 lines.
+
+---
+
+*Hand this file + README.md to an implementation AI chat. Together they provide everything needed to build Phase 0 from zero to booting.*
