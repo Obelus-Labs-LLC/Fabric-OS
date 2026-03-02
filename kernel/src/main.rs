@@ -5,6 +5,7 @@ extern crate alloc;
 
 mod bus;
 mod capability;
+mod governance;
 mod hal;
 mod memory;
 mod ocrb;
@@ -28,7 +29,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 4 (Userspace Drivers + HAL)");
+    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 5A (Deterministic Governance)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -154,8 +155,24 @@ extern "C" fn _start() -> ! {
     serial_println!();
     ocrb::run_phase4_gate();
 
+    // Phase 5A: Deterministic Governance
+    // Clean up Phase 4 OCRB state
+    process::TABLE.lock().clear();
+    process::SCHEDULER.lock().clear();
+    bus::BUS.lock().clear();
+    capability::STORE.lock().clear();
+    process::init(); // Re-init Butler
+
     serial_println!();
-    serial_println!("[FABRIC] Phase 4 complete. Driver crash isolation verified.");
+    governance::init();
+    governance_self_test();
+
+    // OCRB Governance Gate
+    serial_println!();
+    ocrb::run_phase5a_gate();
+
+    serial_println!();
+    serial_println!("[FABRIC] Phase 5A complete. Deterministic governance verified.");
     serial_println!("[FABRIC] Halting.");
 
     halt();
@@ -432,6 +449,20 @@ fn driver_self_test() {
     let _ = capability::revoke(send_cap.0);
 
     serial_println!("[HAL] Self-test: register/send/dispatch/response — OK");
+}
+
+fn governance_self_test() {
+    use fabric_types::governance::SafetyState;
+
+    // Verify constitution loaded
+    let gov = governance::GOVERNANCE.lock();
+    assert_eq!(gov.rules.rule_count(), 9);
+    assert!(gov.verify_constitution());
+    let state = gov.safety.state();
+    assert_eq!(state, SafetyState::Normal);
+    drop(gov);
+
+    serial_println!("[GOV] Self-test: constitution/hash/state — OK");
 }
 
 fn halt() -> ! {

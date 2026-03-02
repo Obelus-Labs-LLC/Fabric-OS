@@ -44,7 +44,17 @@ pub fn register_process(pid: ProcessId) -> Result<(), BusError> {
 }
 
 pub fn send(header: &MessageHeader, payload: Option<&[u8]>, nonce: u32) -> Result<(), BusError> {
-    BUS.lock().send(header, payload, nonce)
+    // Phase 5A: Policy pre-check BEFORE acquiring BUS lock.
+    // Lock ordering: GOVERNANCE < TABLE < STORE < BUS
+    crate::governance::evaluate_policy(header)?;
+
+    // Policy allows — proceed with normal 12-step pipeline
+    let mut bus = BUS.lock();
+    let result = bus.send(header, payload, nonce);
+    if result.is_err() {
+        // If send fails after policy pass, that's a bus-level rejection (not policy)
+    }
+    result
 }
 
 pub fn receive(pid: ProcessId) -> Option<Envelope> {

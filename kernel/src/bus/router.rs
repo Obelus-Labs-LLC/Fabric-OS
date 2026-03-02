@@ -50,6 +50,9 @@ pub enum BusError {
     ProcessAlreadyRegistered,
     ProcessLimitReached,
 
+    // Governance
+    PolicyDenied,
+
     // Internal
     NotInitialized,
 }
@@ -425,6 +428,21 @@ impl BusRouter {
     }
 
     // --- Internal helpers ---
+
+    /// Record a policy-denied rejection in the audit log.
+    pub fn reject_with_policy(&mut self, header: &MessageHeader) {
+        let ts = Timestamp(self.current_tick);
+        self.audit.append(
+            header.sender,
+            AuditAction::PolicyViolation,
+            header.receiver,
+            header.msg_type,
+            header.capability_id,
+            header.sequence,
+            ts,
+        );
+        self.total_rejected += 1;
+    }
 
     fn reject(&mut self, header: &MessageHeader, action: AuditAction, ts: Timestamp) {
         self.audit.append(

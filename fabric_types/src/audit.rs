@@ -21,6 +21,7 @@ pub enum AuditAction {
     HmacFailure       = 7,
     QueueFull         = 8,
     MonitorNotify     = 9,
+    PolicyViolation   = 10,
 }
 
 /// Hash-chained audit log entry.

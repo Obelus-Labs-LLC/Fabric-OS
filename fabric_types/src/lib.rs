@@ -14,6 +14,7 @@ pub mod message;
 pub mod audit;
 pub mod process;
 pub mod device;
+pub mod governance;
 
 // Re-export core types at crate root for convenience
 pub use ids::{CapabilityId, ResourceId, ProcessId, TypeId, Timestamp};
@@ -22,3 +23,4 @@ pub use message::MessageHeader;
 pub use audit::{AuditEntry, AuditAction};
 pub use process::{IntentCategory, Priority, ProcessState, EnergyClass, SupervisionStrategy, Intent};
 pub use device::{DeviceClass, DriverOp, DriverStatus, DriverRequest, DriverResponse};
+pub use governance::{SafetyState, AcsState, RuleCondition, RuleAction, PolicyVerdict};
