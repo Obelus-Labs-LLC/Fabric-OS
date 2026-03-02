@@ -5,6 +5,7 @@ extern crate alloc;
 
 mod bus;
 mod capability;
+mod hal;
 mod memory;
 mod ocrb;
 mod panic;
@@ -27,7 +28,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 3 (Scheduler + Process Model)");
+    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 4 (Userspace Drivers + HAL)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -137,8 +138,24 @@ extern "C" fn _start() -> ! {
     serial_println!();
     ocrb::run_phase3_gate();
 
+    // Phase 4: Userspace Drivers + HAL
+    // Clean up Phase 3 OCRB state before HAL init
+    process::TABLE.lock().clear();
+    process::SCHEDULER.lock().clear();
+    bus::BUS.lock().clear();
+    capability::STORE.lock().clear();
+    process::init(); // Re-init Butler for HAL
+
     serial_println!();
-    serial_println!("[FABRIC] Phase 3 complete. Process model verified.");
+    hal::init();
+    driver_self_test();
+
+    // OCRB Driver Isolation Gate
+    serial_println!();
+    ocrb::run_phase4_gate();
+
+    serial_println!();
+    serial_println!("[FABRIC] Phase 4 complete. Driver crash isolation verified.");
     serial_println!("[FABRIC] Halting.");
 
     halt();
@@ -349,6 +366,72 @@ fn process_self_test() {
     process::init(); // Re-init Butler
 
     serial_println!("[PROC] Self-test: spawn/query/terminate — OK");
+}
+
+fn driver_self_test() {
+    use fabric_types::{
+        DriverOp, DriverRequest, DeviceClass, MessageHeader,
+        ProcessId, ResourceId, TypeId, Timestamp,
+    };
+
+    let ramdisk_res = ResourceId::new(ResourceId::KIND_DEVICE | 0x03);
+
+    // Verify 4 drivers registered
+    assert_eq!(hal::driver_count(), 4);
+
+    // Quick smoke test: send a Write to the ramdisk, dispatch, read back
+    let ramdisk_pid = hal::driver_pid(ramdisk_res).expect("ramdisk pid");
+
+    // Build a write request with 4 bytes of test data
+    let mut request = DriverRequest::zeroed();
+    request.operation = DriverOp::Write;
+    request.device_class = DeviceClass::BlockStorage;
+    request.offset = 0;
+    request.length = 4;
+
+    let req_bytes = request.to_bytes();
+    let test_data: [u8; 4] = [0xDE, 0xAD, 0xBE, 0xEF];
+
+    // Combine request + data into payload
+    let mut payload = alloc::vec::Vec::new();
+    payload.extend_from_slice(&req_bytes);
+    payload.extend_from_slice(&test_data);
+
+    // We need a sender process — use Butler
+    let sender = ProcessId::BUTLER;
+
+    // Get Butler's capability for this send (create a temporary IPC cap)
+    let send_cap = capability::create(
+        ResourceId::new(ResourceId::KIND_IPC | 0x100),
+        fabric_types::Perm::READ | fabric_types::Perm::WRITE,
+        sender,
+        None,
+        None,
+    ).expect("create self-test cap");
+
+    let mut header = MessageHeader::zeroed();
+    header.version = MessageHeader::VERSION;
+    header.msg_type = TypeId::DRIVER_REQUEST;
+    header.sender = sender;
+    header.receiver = ramdisk_pid;
+    header.capability_id = send_cap.0;
+    header.payload_len = payload.len() as u32;
+    header.sequence = 1;
+    header.timestamp = Timestamp(0);
+
+    bus::send(&header, Some(&payload), 1).expect("self-test send");
+
+    // Dispatch the message to the driver
+    hal::dispatch_one(ramdisk_res);
+
+    // Check response in Butler's inbox
+    let resp_env = bus::receive(sender);
+    assert!(resp_env.is_some(), "self-test: no response from ramdisk");
+
+    // Clean up the temp cap
+    let _ = capability::revoke(send_cap.0);
+
+    serial_println!("[HAL] Self-test: register/send/dispatch/response — OK");
 }
 
 fn halt() -> ! {

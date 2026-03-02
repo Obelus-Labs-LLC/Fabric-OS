@@ -77,6 +77,13 @@ impl ProcessId {
 }
 
 impl TypeId {
+    /// Driver request message (client -> driver).
+    pub const DRIVER_REQUEST:  Self = Self(0x0100);
+    /// Driver response message (driver -> client).
+    pub const DRIVER_RESPONSE: Self = Self(0x0101);
+    /// Synthetic interrupt event (kernel -> driver).
+    pub const INTERRUPT_EVENT: Self = Self(0x0102);
+
     pub const fn new(raw: u16) -> Self {
         Self(raw)
     }
