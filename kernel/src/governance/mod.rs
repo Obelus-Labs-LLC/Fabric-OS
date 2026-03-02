@@ -18,10 +18,11 @@ pub mod rules;
 pub mod constitution;
 pub mod safety;
 pub mod acs;
+pub mod wp_protect;
 
 use spin::Mutex;
 use fabric_types::MessageHeader;
-use fabric_types::governance::{SafetyState, AcsState, PolicyVerdict};
+use fabric_types::governance::{SafetyState, AcsState, PolicyVerdict, RuleAction};
 use crate::bus::BusError;
 use crate::serial_println;
 
@@ -178,21 +179,27 @@ pub fn evaluate_policy(header: &MessageHeader) -> Result<(), BusError> {
         sender_priority,
         safety_state: gov.safety.state(),
         acs_state: gov.acs.state(),
+        tier_escalated: false,
     };
 
-    let (verdict, _rule_name, _should_log) = gov.rules.evaluate(&ctx);
+    // Check for EscalateToTier2 action first
+    let (action, _rule_name) = gov.rules.evaluate_with_action(&ctx);
     gov.total_evaluations += 1;
 
-    match verdict {
-        PolicyVerdict::Allow => Ok(()),
-        PolicyVerdict::Deny => {
+    match action {
+        RuleAction::Allow | RuleAction::AllowIfCapValid => Ok(()),
+        RuleAction::Deny => {
             gov.total_denials += 1;
             Err(BusError::PolicyDenied)
         }
-        PolicyVerdict::Escalate(target_state) => {
+        RuleAction::DenyAndLog => {
+            gov.total_denials += 1;
+            Err(BusError::PolicyDenied)
+        }
+        RuleAction::EscalateToChaos => {
             // Escalate safety state, then re-evaluate
             let tick = gov.current_tick;
-            gov.safety.force_state(target_state, tick);
+            gov.safety.force_state(SafetyState::Chaos, tick);
             let ctx2 = EvalContext {
                 sender_pid: ctx.sender_pid,
                 receiver_pid: ctx.receiver_pid,
@@ -202,11 +209,26 @@ pub fn evaluate_policy(header: &MessageHeader) -> Result<(), BusError> {
                 sender_priority: ctx.sender_priority,
                 safety_state: gov.safety.state(),
                 acs_state: ctx.acs_state,
+                tier_escalated: false,
             };
             let (verdict2, _, _) = gov.rules.evaluate(&ctx2);
             match verdict2 {
                 PolicyVerdict::Allow => Ok(()),
                 _ => {
+                    gov.total_denials += 1;
+                    Err(BusError::PolicyDenied)
+                }
+            }
+        }
+        RuleAction::EscalateToTier2 => {
+            // Release GOVERNANCE lock before acquiring COUNCIL lock
+            drop(gov);
+            // Council evaluates — acquires its own lock
+            let council_verdict = crate::council::evaluate_tier2(&ctx);
+            match council_verdict.decision {
+                PolicyVerdict::Allow => Ok(()),
+                _ => {
+                    let mut gov = GOVERNANCE.lock();
                     gov.total_denials += 1;
                     Err(BusError::PolicyDenied)
                 }

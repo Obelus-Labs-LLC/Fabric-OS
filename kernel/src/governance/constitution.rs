@@ -16,7 +16,7 @@ use super::rules::{Condition, PolicyRule};
 pub const AMENDMENT_COOLING_TICKS: u64 = 86_400_000;
 
 /// Number of genesis rules.
-pub const GENESIS_RULE_COUNT: usize = 9;
+pub const GENESIS_RULE_COUNT: usize = 10;
 
 /// Build the 9 genesis rules as a const-compatible array.
 pub fn genesis_rules() -> [PolicyRule; GENESIS_RULE_COUNT] {
@@ -123,6 +123,18 @@ pub fn genesis_rules() -> [PolicyRule; GENESIS_RULE_COUNT] {
             condition_count: 2,
             conditions: [
                 Condition::new(RuleCondition::SafetyStateAtLeast, SafetyState::Safe as u64),
+                Condition::new(RuleCondition::SenderNotButler, 0),
+                empty_cond, empty_cond,
+            ],
+            action: RuleAction::AllowIfCapValid,
+        },
+        // 10. council-escalation: AI resource access requires valid cap (non-Butler)
+        PolicyRule {
+            name: "council-escalation",
+            priority: 550,
+            condition_count: 2,
+            conditions: [
+                Condition::new(RuleCondition::ResourceKindEquals, 6), // KIND_AI upper 16 bits = 6
                 Condition::new(RuleCondition::SenderNotButler, 0),
                 empty_cond, empty_cond,
             ],

@@ -43,6 +43,7 @@ impl Condition {
                 (ctx.acs_state as u8) == (self.value as u8)
             }
             RuleCondition::SenderNotButler => ctx.sender_pid != 1,
+            RuleCondition::TierEscalated => ctx.tier_escalated,
         }
     }
 }
@@ -91,7 +92,13 @@ impl PolicyRule {
             RuleAction::Deny => PolicyVerdict::Deny,
             RuleAction::DenyAndLog => PolicyVerdict::Deny,
             RuleAction::EscalateToChaos => PolicyVerdict::Escalate(SafetyState::Chaos),
+            RuleAction::EscalateToTier2 => PolicyVerdict::Deny, // placeholder; actual Tier 2 handled in governance::evaluate_policy
         }
+    }
+
+    /// Whether this rule's action is EscalateToTier2.
+    pub fn is_tier2_escalation(&self) -> bool {
+        self.action == RuleAction::EscalateToTier2
     }
 }
 
@@ -115,6 +122,8 @@ pub struct EvalContext {
     pub sender_priority: u8,
     pub safety_state: SafetyState,
     pub acs_state: AcsState,
+    /// Whether this message was escalated from Council Tier 2/3.
+    pub tier_escalated: bool,
 }
 
 /// The rule engine — evaluates rules in priority order.
@@ -162,6 +171,18 @@ impl RuleEngine {
         (PolicyVerdict::Allow, "default-allow", false)
     }
 
+    /// Evaluate and also return the raw RuleAction of the matched rule.
+    /// Used by governance to detect EscalateToTier2 before verdict conversion.
+    pub fn evaluate_with_action(&self, ctx: &EvalContext) -> (RuleAction, &'static str) {
+        for i in 0..self.count {
+            let rule = &self.rules[i];
+            if rule.matches(ctx) {
+                return (rule.action, rule.name);
+            }
+        }
+        (RuleAction::Allow, "default-allow")
+    }
+
     /// Get the number of loaded rules.
     pub fn rule_count(&self) -> usize {
         self.count
@@ -174,6 +195,40 @@ impl RuleEngine {
         } else {
             None
         }
+    }
+
+    /// Add a rule dynamically (e.g. GPU isolation). Returns true if space available.
+    pub fn add_rule(&mut self, rule: PolicyRule) -> bool {
+        if self.count >= MAX_RULES {
+            return false;
+        }
+        self.rules[self.count] = rule;
+        self.count += 1;
+        // Re-sort by priority descending
+        for i in 1..self.count {
+            let mut j = i;
+            while j > 0 && self.rules[j].priority > self.rules[j - 1].priority {
+                self.rules.swap(j, j - 1);
+                j -= 1;
+            }
+        }
+        true
+    }
+
+    /// Remove a rule by name. Returns true if found and removed.
+    pub fn remove_rule(&mut self, name: &str) -> bool {
+        for i in 0..self.count {
+            if self.rules[i].name == name {
+                // Shift remaining rules down
+                for j in i..self.count - 1 {
+                    self.rules[j] = self.rules[j + 1];
+                }
+                self.rules[self.count - 1] = PolicyRule::empty();
+                self.count -= 1;
+                return true;
+            }
+        }
+        false
     }
 
     /// Replace a rule by name (for amendment testing). Returns true if found.

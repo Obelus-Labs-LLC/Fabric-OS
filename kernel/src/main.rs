@@ -5,6 +5,7 @@ extern crate alloc;
 
 mod bus;
 mod capability;
+mod council;
 mod governance;
 mod hal;
 mod memory;
@@ -29,7 +30,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 5A (Deterministic Governance)");
+    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 5B (Adaptive Governance)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -167,12 +168,34 @@ extern "C" fn _start() -> ! {
     governance::init();
     governance_self_test();
 
+    // Hardware-enforce constitution: set CR0.WP so .rodata is read-only at CPU level
+    governance::wp_protect::wp_enable();
+    serial_println!("[GOV] CR0.WP enabled — constitution hardware-protected");
+
     // OCRB Governance Gate
     serial_println!();
     ocrb::run_phase5a_gate();
 
+    // Phase 5B: Adaptive Governance (AI Council)
+    // Clean up Phase 5A OCRB state
+    governance::GOVERNANCE.lock().clear();
+    process::TABLE.lock().clear();
+    process::SCHEDULER.lock().clear();
+    bus::BUS.lock().clear();
+    capability::STORE.lock().clear();
+    process::init(); // Re-init Butler
+    governance::init();
+
     serial_println!();
-    serial_println!("[FABRIC] Phase 5A complete. Deterministic governance verified.");
+    council::init();
+    council_self_test();
+
+    // OCRB Council Gate
+    serial_println!();
+    ocrb::run_phase5b_gate();
+
+    serial_println!();
+    serial_println!("[FABRIC] Phase 5B complete. Adaptive governance verified.");
     serial_println!("[FABRIC] Halting.");
 
     halt();
@@ -451,12 +474,25 @@ fn driver_self_test() {
     serial_println!("[HAL] Self-test: register/send/dispatch/response — OK");
 }
 
+fn council_self_test() {
+    let council = council::COUNCIL.lock();
+    assert!(council.weights.verify_all());
+    let hashes = council.weights.weight_hashes();
+    // Verify all 3 models have distinct non-zero hashes
+    assert_ne!(hashes[0], [0u8; 32]);
+    assert_ne!(hashes[0], hashes[1]);
+    assert_ne!(hashes[1], hashes[2]);
+    drop(council);
+
+    serial_println!("[COUNCIL] Self-test: models/hashes/integrity — OK");
+}
+
 fn governance_self_test() {
     use fabric_types::governance::SafetyState;
 
     // Verify constitution loaded
     let gov = governance::GOVERNANCE.lock();
-    assert_eq!(gov.rules.rule_count(), 9);
+    assert_eq!(gov.rules.rule_count(), 10);
     assert!(gov.verify_constitution());
     let state = gov.safety.state();
     assert_eq!(state, SafetyState::Normal);

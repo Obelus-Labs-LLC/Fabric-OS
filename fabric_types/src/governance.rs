@@ -1,7 +1,7 @@
 //! Governance types — shared between kernel and userspace.
 //!
 //! Defines safety states, ACS lifecycle, rule conditions/actions,
-//! and policy verdicts for the deterministic governance engine.
+//! policy verdicts, and Council types for the governance engine.
 
 #![allow(dead_code)]
 
@@ -51,6 +51,8 @@ pub enum RuleCondition {
     AcsStateEquals     = 7,
     /// Match if sender PID != 1 (Butler). Value ignored.
     SenderNotButler    = 8,
+    /// Match if message was escalated from Tier 2/3 Council.
+    TierEscalated      = 9,
 }
 
 /// Actions taken when a rule matches.
@@ -67,6 +69,8 @@ pub enum RuleAction {
     AllowIfCapValid = 3,
     /// Escalate safety state to Chaos, then re-evaluate.
     EscalateToChaos = 4,
+    /// Escalate to Council Tier 2 for AI-assisted decision.
+    EscalateToTier2 = 5,
 }
 
 /// Result of policy evaluation.
@@ -78,4 +82,40 @@ pub enum PolicyVerdict {
     Deny,
     /// Safety state should be escalated, then re-evaluate.
     Escalate(SafetyState),
+}
+
+// === Council (Phase 5B) types ===
+
+/// Council decision tier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TierLevel {
+    Tier1 = 1,
+    Tier2 = 2,
+    Tier3 = 3,
+}
+
+/// Model identity within the Council.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ModelId {
+    /// Security-focused model.
+    Sentinel = 0,
+    /// Fairness-focused model.
+    Arbiter  = 1,
+    /// Resource optimization model.
+    Oracle   = 2,
+}
+
+/// Council verdict with confidence and voting details.
+#[derive(Clone, Copy, Debug)]
+pub struct CouncilVerdict {
+    /// Final decision.
+    pub decision: PolicyVerdict,
+    /// Confidence level (0-100).
+    pub confidence: u8,
+    /// Which tier produced this verdict.
+    pub tier: TierLevel,
+    /// Per-model votes (Tier 3 only; default Allow for unused slots).
+    pub model_votes: [PolicyVerdict; 3],
 }

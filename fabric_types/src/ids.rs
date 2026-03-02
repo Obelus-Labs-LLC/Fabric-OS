@@ -41,6 +41,9 @@ impl ResourceId {
     pub const KIND_DEVICE: u64   = 0x0003_0000_0000_0000;
     pub const KIND_FS:     u64   = 0x0004_0000_0000_0000;
     pub const KIND_NET:    u64   = 0x0005_0000_0000_0000;
+    pub const KIND_AI:     u64   = 0x0006_0000_0000_0000;
+    pub const KIND_TRAINING: u64 = 0x0007_0000_0000_0000;
+    pub const KIND_GPU:    u64   = 0x0008_0000_0000_0000;
 
     pub const fn new(raw: u64) -> Self {
         Self(raw)
@@ -83,6 +86,12 @@ impl TypeId {
     pub const DRIVER_RESPONSE: Self = Self(0x0101);
     /// Synthetic interrupt event (kernel -> driver).
     pub const INTERRUPT_EVENT: Self = Self(0x0102);
+    /// Council query (governance -> council).
+    pub const COUNCIL_QUERY:    Self = Self(0x0200);
+    /// Council response (council -> governance).
+    pub const COUNCIL_RESPONSE: Self = Self(0x0201);
+    /// Council training request.
+    pub const COUNCIL_TRAIN:    Self = Self(0x0202);
 
     pub const fn new(raw: u16) -> Self {
         Self(raw)

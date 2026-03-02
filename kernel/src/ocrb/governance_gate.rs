@@ -194,6 +194,7 @@ fn test_2_normal_state_policy() -> OcrbResult {
         sender_priority: 5,
         safety_state: SafetyState::Normal,
         acs_state: AcsState::Active,
+        tier_escalated: false,
     };
     let (verdict, name, _) = gov.rules.evaluate(&butler_ctx);
     if verdict == fabric_types::PolicyVerdict::Allow && name == "butler-unrestricted" {
@@ -210,6 +211,7 @@ fn test_2_normal_state_policy() -> OcrbResult {
         sender_priority: 5,
         safety_state: SafetyState::Normal,
         acs_state: AcsState::Active,
+        tier_escalated: false,
     };
     let (verdict, name, _) = gov.rules.evaluate(&normal_ctx);
     if verdict == fabric_types::PolicyVerdict::Allow && name == "normal-default-allow" {
@@ -226,6 +228,7 @@ fn test_2_normal_state_policy() -> OcrbResult {
         sender_priority: 5,
         safety_state: SafetyState::Normal,
         acs_state: AcsState::Active,
+        tier_escalated: false,
     };
     let (verdict, name, should_log) = gov.rules.evaluate(&kernel_ctx);
     if verdict == fabric_types::PolicyVerdict::Deny && name == "deny-kernel-spoof" && should_log {
@@ -540,6 +543,7 @@ fn test_8_policy_under_load() -> OcrbResult {
             sender_priority: 5,
             safety_state: SafetyState::Normal,
             acs_state: AcsState::Active,
+            tier_escalated: false,
         };
         let (verdict, _, _) = gov.rules.evaluate(&ctx);
         if verdict == fabric_types::PolicyVerdict::Allow {
@@ -562,6 +566,7 @@ fn test_8_policy_under_load() -> OcrbResult {
             sender_priority: 5,
             safety_state: SafetyState::Lockdown,
             acs_state: AcsState::Active,
+            tier_escalated: false,
         };
         let (verdict, _, _) = gov.rules.evaluate(&ctx);
         if verdict == fabric_types::PolicyVerdict::Deny {
@@ -584,6 +589,7 @@ fn test_8_policy_under_load() -> OcrbResult {
             sender_priority: 5,
             safety_state: SafetyState::Lockdown,
             acs_state: AcsState::Active,
+            tier_escalated: false,
         };
         let (verdict, _, _) = gov.rules.evaluate(&ctx);
         if verdict == fabric_types::PolicyVerdict::Allow {
@@ -607,6 +613,7 @@ fn test_8_policy_under_load() -> OcrbResult {
             sender_priority: prio,
             safety_state: SafetyState::Chaos,
             acs_state: AcsState::Active,
+            tier_escalated: false,
         };
         let (verdict, _, _) = gov.rules.evaluate(&ctx);
         if prio >= 4 && verdict == fabric_types::PolicyVerdict::Allow {
