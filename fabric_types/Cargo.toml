@@ -1,0 +1,9 @@
+[package]
+name = "fabric-types"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dshon Smith <admin@obeluslabs.com>"]
+description = "Stable interface types for Fabric OS — 64-byte cache-line aligned wire formats"
+
+[lib]
+name = "fabric_types"

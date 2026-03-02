@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+mod capability;
 mod memory;
 mod ocrb;
 mod panic;
@@ -24,7 +25,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 0 (Bare Metal)");
+    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 1 (Capability Engine)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -107,8 +108,17 @@ extern "C" fn _start() -> ! {
     serial_println!();
     ocrb::run_phase0_gate();
 
+    // Phase 1: Capability Engine
     serial_println!();
-    serial_println!("[FABRIC] Phase 0 complete. Kernel alive and verified.");
+    capability::init();
+    capability_self_test();
+
+    // OCRB Capability Storm Gate
+    serial_println!();
+    ocrb::run_phase1_gate();
+
+    serial_println!();
+    serial_println!("[FABRIC] Phase 1 complete. Capability engine verified.");
     serial_println!("[FABRIC] Halting.");
 
     halt();
@@ -197,6 +207,43 @@ fn heap_self_test() {
     assert_eq!(v2[0], 0xAB);
 
     serial_println!("[HEAP] Self-test: Vec, Box, String — OK");
+}
+
+fn capability_self_test() {
+    use capability::{ResourceId, ProcessId, Perm};
+
+    // Create a root capability
+    let cap_id = capability::create(
+        ResourceId::new(ResourceId::KIND_MEMORY | 1),
+        Perm::READ | Perm::WRITE | Perm::GRANT,
+        ProcessId::new(1),
+        None,
+        None,
+    ).expect("create capability");
+
+    // Validate it
+    capability::validate(cap_id.0, Perm::READ, 1).expect("validate capability");
+
+    // Delegate a child with READ only
+    let child_id = capability::delegate(
+        cap_id.0,
+        ProcessId::new(2),
+        Perm::READ,
+        None,
+        None,
+    ).expect("delegate capability");
+
+    // Validate the child
+    capability::validate(child_id.0, Perm::READ, 1).expect("validate child");
+
+    // Revoke the root (should cascade to child)
+    let revoked = capability::revoke(cap_id.0).expect("revoke capability");
+    assert_eq!(revoked, 2); // root + child
+
+    // Verify store is empty
+    assert_eq!(capability::count(), 0);
+
+    serial_println!("[CAP] Self-test: create/validate/delegate/revoke — OK");
 }
 
 fn halt() -> ! {

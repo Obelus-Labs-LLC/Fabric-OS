@@ -76,7 +76,7 @@ fn test2_frame_stress() -> OcrbResult {
     let alloc_target = initial_free.min(50000);
 
     let mut addrs: Vec<PhysAddr> = Vec::with_capacity(alloc_target);
-    let mut exhausted_correctly = false;
+    let exhausted_correctly;
 
     // Allocate until we hit the cap or run out
     for _ in 0..alloc_target {
