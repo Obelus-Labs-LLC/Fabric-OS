@@ -247,6 +247,11 @@ impl CapabilityStore {
         self.tokens.get(&token_id)
     }
 
+    /// Get the owner and resource of a capability (for bus router sender verification).
+    pub fn get_token_info(&self, token_id: u64) -> Option<(ProcessId, ResourceId)> {
+        self.tokens.get(&token_id).map(|s| (s.token.owner, s.token.resource))
+    }
+
     /// Advance the monotonic tick counter.
     pub fn tick(&mut self) {
         self.current_tick += 1;

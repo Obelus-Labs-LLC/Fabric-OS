@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+mod bus;
 mod capability;
 mod memory;
 mod ocrb;
@@ -25,7 +26,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 1 (Capability Engine)");
+    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 2 (Typed Message Bus)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -117,8 +118,17 @@ extern "C" fn _start() -> ! {
     serial_println!();
     ocrb::run_phase1_gate();
 
+    // Phase 2: Typed Message Bus
     serial_println!();
-    serial_println!("[FABRIC] Phase 1 complete. Capability engine verified.");
+    bus::init();
+    bus_self_test();
+
+    // OCRB Bus Byzantine + Flood Gate
+    serial_println!();
+    ocrb::run_phase2_gate();
+
+    serial_println!();
+    serial_println!("[FABRIC] Phase 2 complete. Message bus verified.");
     serial_println!("[FABRIC] Halting.");
 
     halt();
@@ -244,6 +254,61 @@ fn capability_self_test() {
     assert_eq!(capability::count(), 0);
 
     serial_println!("[CAP] Self-test: create/validate/delegate/revoke — OK");
+}
+
+fn bus_self_test() {
+    use capability::{ResourceId, ProcessId, Perm};
+    use fabric_types::{TypeId, Timestamp, MessageHeader};
+
+    // Register two processes
+    bus::register_process(ProcessId::new(1)).expect("register pid 1");
+    bus::register_process(ProcessId::new(2)).expect("register pid 2");
+
+    // Create a capability for pid 1 to send on the bus
+    let cap_id = capability::create(
+        ResourceId::new(ResourceId::KIND_IPC | 1),
+        Perm::READ | Perm::WRITE,
+        ProcessId::new(1),
+        None,
+        None,
+    ).expect("create ipc cap");
+
+    // Build a message header
+    let mut header = MessageHeader::zeroed();
+    header.version = MessageHeader::VERSION;
+    header.msg_type = TypeId(1);
+    header.sender = ProcessId::new(1);
+    header.receiver = ProcessId::new(2);
+    header.capability_id = cap_id.0;
+    header.sequence = 1;
+    header.timestamp = Timestamp(0);
+    header.payload_len = 5;
+
+    // Send with payload
+    bus::send(&header, Some(b"hello"), 1).expect("send message");
+
+    // Receive
+    let env = bus::receive(ProcessId::new(2)).expect("receive message");
+    assert_eq!(env.header.sender, ProcessId::new(1));
+    assert_eq!(env.header.payload_len, 5);
+
+    // Verify payload via arena
+    if let Some(slice) = env.payload {
+        let guard = bus::BUS.lock();
+        let data = guard.payload(slice);
+        assert_eq!(data, b"hello");
+    }
+
+    // Verify audit chain
+    let (count, valid) = bus::verify_audit_chain();
+    assert!(valid);
+    assert!(count > 0);
+
+    // Clean up
+    bus::BUS.lock().clear();
+    capability::STORE.lock().clear();
+
+    serial_println!("[BUS] Self-test: send/receive/audit — OK");
 }
 
 fn halt() -> ! {
