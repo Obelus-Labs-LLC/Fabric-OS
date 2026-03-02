@@ -12,9 +12,11 @@ pub mod ids;
 pub mod capability;
 pub mod message;
 pub mod audit;
+pub mod process;
 
 // Re-export core types at crate root for convenience
 pub use ids::{CapabilityId, ResourceId, ProcessId, TypeId, Timestamp};
 pub use capability::{CapabilityToken, Perm, Budget};
 pub use message::MessageHeader;
 pub use audit::{AuditEntry, AuditAction};
+pub use process::{IntentCategory, Priority, ProcessState, EnergyClass, SupervisionStrategy, Intent};

@@ -69,6 +69,7 @@ impl CapabilityId {
 
 impl ProcessId {
     pub const KERNEL: Self = Self(0);
+    pub const BUTLER: Self = Self(1);
 
     pub const fn new(raw: u32) -> Self {
         Self(raw)

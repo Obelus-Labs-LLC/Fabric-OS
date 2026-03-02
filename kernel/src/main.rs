@@ -8,6 +8,7 @@ mod capability;
 mod memory;
 mod ocrb;
 mod panic;
+mod process;
 mod serial;
 use limine::BaseRevision;
 use limine::request::{MemoryMapRequest, HhdmRequest};
@@ -26,7 +27,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 2 (Typed Message Bus)");
+    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 3 (Scheduler + Process Model)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -127,8 +128,17 @@ extern "C" fn _start() -> ! {
     serial_println!();
     ocrb::run_phase2_gate();
 
+    // Phase 3: Process Model + Scheduler
     serial_println!();
-    serial_println!("[FABRIC] Phase 2 complete. Message bus verified.");
+    process::init();
+    process_self_test();
+
+    // OCRB Process + Scheduler Storm Gate
+    serial_println!();
+    ocrb::run_phase3_gate();
+
+    serial_println!();
+    serial_println!("[FABRIC] Phase 3 complete. Process model verified.");
     serial_println!("[FABRIC] Halting.");
 
     halt();
@@ -309,6 +319,36 @@ fn bus_self_test() {
     capability::STORE.lock().clear();
 
     serial_println!("[BUS] Self-test: send/receive/audit — OK");
+}
+
+fn process_self_test() {
+    use fabric_types::{ProcessId, ProcessState, Intent};
+
+    // Butler should exist at pid 1
+    assert_eq!(process::get_state(ProcessId::BUTLER), Some(ProcessState::Ready));
+
+    // Spawn a child under Butler
+    let child = process::spawn(
+        ProcessId::BUTLER,
+        Intent::default(),
+        "test child",
+        None,
+    ).expect("spawn test child");
+
+    // Verify it exists and is Ready
+    assert_eq!(process::get_state(child), Some(ProcessState::Ready));
+
+    // Terminate it
+    process::terminate(child).expect("terminate test child");
+
+    // Clean up for OCRB
+    process::TABLE.lock().clear();
+    process::SCHEDULER.lock().clear();
+    bus::BUS.lock().clear();
+    capability::STORE.lock().clear();
+    process::init(); // Re-init Butler
+
+    serial_println!("[PROC] Self-test: spawn/query/terminate — OK");
 }
 
 fn halt() -> ! {
