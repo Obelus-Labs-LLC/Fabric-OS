@@ -8,6 +8,7 @@ mod bus;
 mod butler_state;
 mod capability;
 mod council;
+mod elf;
 mod governance;
 mod hal;
 mod handle;
@@ -16,6 +17,7 @@ mod ocrb;
 mod panic;
 mod process;
 mod serial;
+mod x86;
 use limine::BaseRevision;
 use limine::request::{MemoryMapRequest, HhdmRequest};
 
@@ -33,7 +35,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v0.2.0 — Phase 6 (Memory Isolation)");
+    serial_println!("[FABRIC]   Fabric OS v0.3.0 — Phase 7 (Hardware + Userspace)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -224,8 +226,55 @@ extern "C" fn _start() -> ! {
     serial_println!();
     ocrb::run_phase6_gate();
 
+    // Phase 7: Hardware Interrupts + Userspace Execution
+    // Clean up Phase 6 OCRB state
+    governance::GOVERNANCE.lock().clear();
+    council::COUNCIL.lock().clear();
+    process::TABLE.lock().clear();
+    process::SCHEDULER.lock().clear();
+    bus::BUS.lock().clear();
+    capability::STORE.lock().clear();
+    process::init(); // Re-init Butler
+    governance::init();
+    council::init();
+
     serial_println!();
-    serial_println!("[FABRIC] Phase 6 complete. Memory isolation + handle ABI verified.");
+    serial_println!("[PHASE7] ============================================");
+    serial_println!("[PHASE7]   Phase 7 — Hardware Interrupts + Userspace");
+    serial_println!("[PHASE7] ============================================");
+
+    // Phase 7A: GDT + TSS + IDT + APIC
+    x86::init();
+
+    // Phase 7B: SYSCALL/SYSRET
+    x86::init_syscall();
+
+    // Start APIC timer (enables preemptive scheduling)
+    // Use conservative initial count — ~1kHz on most QEMU configs
+    x86::apic::start_timer(0x20000);
+
+    // Enable interrupts
+    x86::enable_interrupts();
+    serial_println!("[PHASE7] Interrupts enabled (STI)");
+
+    // Brief wait to confirm timer is ticking
+    for _ in 0..100_000 {
+        core::hint::spin_loop();
+    }
+    let ticks = x86::idt::tick_count();
+    serial_println!("[PHASE7] Timer ticks after brief wait: {}", ticks);
+
+    // Disable interrupts for self-tests (avoid interference)
+    x86::disable_interrupts();
+
+    phase7_self_test();
+
+    // OCRB Phase 7 Gate
+    serial_println!();
+    ocrb::run_phase7_gate();
+
+    serial_println!();
+    serial_println!("[FABRIC] Phase 7 complete. Hardware interrupts + userspace verified.");
     serial_println!("[FABRIC] Halting.");
 
     halt();
@@ -576,6 +625,40 @@ fn phase6_self_test() {
     serial_println!("[PHASE6] Self-test: break-glass inactive at boot — OK");
 
     serial_println!("[PHASE6] All Phase 6 self-tests passed");
+}
+
+fn phase7_self_test() {
+    // Test 1: GDT loaded (verify we can read back the entries)
+    let gdt_entries = x86::gdt::raw_entries();
+    assert_ne!(gdt_entries[1], 0, "Kernel CS entry should not be zero");
+    serial_println!("[PHASE7] Self-test: GDT loaded — OK");
+
+    // Test 2: TSS RSP0 accessible (IST1 should be non-zero after init)
+    let ist1 = x86::tss::get_ist1();
+    assert_ne!(ist1, 0, "TSS IST1 should be set");
+    serial_println!("[PHASE7] Self-test: TSS IST1 set — OK");
+
+    // Test 3: IDT entries present
+    let idt_entries = x86::idt::raw_entries();
+    assert!(idt_entries[0].is_present(), "IDT entry 0 should be present");
+    assert!(idt_entries[32].is_present(), "IDT entry 32 (timer) should be present");
+    serial_println!("[PHASE7] Self-test: IDT entries present — OK");
+
+    // Test 4: APIC initialized
+    assert!(x86::apic::is_initialized(), "APIC should be initialized");
+    serial_println!("[PHASE7] Self-test: APIC initialized — OK");
+
+    // Test 5: SYSCALL MSRs configured
+    let efer = x86::syscall::read_efer();
+    assert!(efer & 1 != 0, "EFER.SCE should be set");
+    serial_println!("[PHASE7] Self-test: SYSCALL EFER.SCE set — OK");
+
+    // Test 6: Timer fired
+    let ticks = x86::idt::tick_count();
+    assert!(ticks > 0, "Timer should have fired at least once");
+    serial_println!("[PHASE7] Self-test: Timer fired ({} ticks) — OK", ticks);
+
+    serial_println!("[PHASE7] All Phase 7 self-tests passed");
 }
 
 fn halt() -> ! {

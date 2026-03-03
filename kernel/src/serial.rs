@@ -72,6 +72,11 @@ pub fn init() {
     SERIAL.lock().init();
 }
 
+/// Write a single byte to COM1 (used by syscall handler for serial output).
+pub fn write_byte(byte: u8) {
+    SERIAL.lock().write_byte(byte);
+}
+
 #[macro_export]
 macro_rules! serial_print {
     ($($arg:tt)*) => {

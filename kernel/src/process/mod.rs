@@ -29,6 +29,9 @@ use fabric_types::{
     Intent, ProcessId, ProcessState, SupervisionStrategy,
 };
 use crate::serial_println;
+use crate::memory::{VirtAddr, PAGE_SIZE};
+use crate::memory::frame;
+use crate::memory::page_table::PageTableFlags;
 
 pub use table::{ProcessTable, ProcessError};
 pub use pcb::{ProcessControlBlock, ExitReason};
@@ -297,4 +300,133 @@ pub fn get_state(pid: ProcessId) -> Option<ProcessState> {
 /// Live process count.
 pub fn count() -> usize {
     TABLE.lock().count()
+}
+
+/// Spawn a userspace process with its own address space and kernel stack.
+///
+/// 1. Creates a basic PCB via spawn()
+/// 2. Allocates a 2-page kernel stack (8KB, order 1)
+/// 3. Builds a fake SavedContext for first-time Ring 3 entry
+/// 4. Stores saved_rsp, kernel stack info, and address space in the PCB
+pub fn spawn_user(
+    supervisor_pid: ProcessId,
+    entry_point: u64,
+    user_stack_top: u64,
+    address_space: crate::address_space::AddressSpace,
+    description: &str,
+) -> Result<ProcessId, ProcessError> {
+    // Step 1: Spawn a basic PCB under the supervisor
+    let pid = spawn(
+        supervisor_pid,
+        Intent::default(),
+        description,
+        None,
+    )?;
+
+    // Step 2: Allocate a 2-page kernel stack (order 1 = 2^1 = 2 pages = 8KB)
+    let kernel_stack_phys = {
+        let mut alloc = frame::ALLOCATOR.lock();
+        alloc.allocate(1) // order 1 = 2 contiguous pages
+    };
+    let kernel_stack_phys = match kernel_stack_phys {
+        Some(p) => p,
+        None => {
+            // Clean up: terminate the process we just spawned
+            let _ = terminate(pid);
+            return Err(ProcessError::TableFull); // re-use error; no OutOfMemory variant
+        }
+    };
+
+    let kernel_stack_base = kernel_stack_phys.to_virt();
+    let kernel_stack_top = kernel_stack_base.as_u64() + (2 * PAGE_SIZE as u64);
+
+    // Zero the kernel stack
+    unsafe {
+        core::ptr::write_bytes(kernel_stack_base.as_u64() as *mut u8, 0, 2 * PAGE_SIZE);
+    }
+
+    // Step 3: Build the initial SavedContext for Ring 3 entry
+    let initial_ctx = crate::x86::context::SavedContext::for_user_entry(
+        entry_point,
+        user_stack_top,
+        crate::x86::gdt::USER_CS,
+        crate::x86::gdt::USER_DS,
+    );
+
+    // Step 4: Place the context on the kernel stack and get saved_rsp
+    let saved_rsp = crate::x86::context::place_initial_context(
+        kernel_stack_top,
+        &initial_ctx,
+    );
+
+    // Step 5: Update the PCB with kernel stack and address space info
+    {
+        let mut table = TABLE.lock();
+        if let Some(pcb) = table.get_mut(pid) {
+            pcb.saved_rsp = saved_rsp;
+            pcb.kernel_stack_base = Some(kernel_stack_base);
+            pcb.kernel_stack_top = kernel_stack_top;
+            pcb.has_run = false;
+            pcb.is_user = true;
+            pcb.address_space = Some(address_space);
+        }
+    }
+
+    serial_println!(
+        "[PROC] Spawned user process pid:{} entry=0x{:x} kstack=0x{:x}",
+        pid.0, entry_point, kernel_stack_top
+    );
+
+    Ok(pid)
+}
+
+/// Spawn a userspace process from ELF binary data.
+///
+/// Combines ELF loading with spawn_user: creates address space, loads ELF,
+/// maps user stack, then spawns the process.
+pub fn spawn_elf(
+    supervisor_pid: ProcessId,
+    elf_data: &[u8],
+    description: &str,
+) -> Result<ProcessId, ProcessError> {
+    use crate::elf;
+
+    // Create a per-process address space
+    let mut addr_space = crate::address_space::AddressSpace::create()
+        .map_err(|_| ProcessError::TableFull)?;
+
+    // Load ELF binary into the address space
+    let entry_point = elf::load_elf(elf_data, &mut addr_space)
+        .map_err(|_| ProcessError::TableFull)?;
+
+    // Map user stack pages
+    let stack_base = elf::USER_STACK_BASE;
+    let stack_pages = elf::USER_STACK_PAGES;
+
+    for i in 0..stack_pages {
+        let page_va = stack_base + i * PAGE_SIZE as u64;
+        let stack_frame = frame::allocate_frame()
+            .ok_or(ProcessError::TableFull)?;
+
+        // Zero the stack frame
+        unsafe {
+            core::ptr::write_bytes(
+                stack_frame.to_virt().as_u64() as *mut u8,
+                0,
+                PAGE_SIZE,
+            );
+        }
+
+        let stack_flags = PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
+        addr_space.map_user_page(
+            VirtAddr::new(page_va),
+            stack_frame,
+            stack_flags,
+        ).map_err(|_| ProcessError::TableFull)?;
+    }
+
+    let user_stack_top = elf::USER_STACK_TOP;
+
+    // Spawn the user process
+    spawn_user(supervisor_pid, entry_point, user_stack_top, addr_space, description)
 }

@@ -15,6 +15,7 @@ use fabric_types::{
 use super::supervisor::RestartTracker;
 use crate::handle::HandleTable;
 use crate::address_space::AddressSpace;
+use crate::memory::VirtAddr;
 
 /// Exit reason when a process terminates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -95,6 +96,20 @@ pub struct ProcessControlBlock {
 
     // Phase 6: Per-process address space (PML4 page table)
     pub address_space: Option<AddressSpace>,
+
+    // Phase 7: CPU context for preemptive scheduling and Ring 3 execution.
+    /// Saved RSP pointing to a SavedContext on the kernel stack.
+    pub saved_rsp: u64,
+    /// Base of the per-process kernel stack (2 pages). None for kernel-only processes.
+    pub kernel_stack_base: Option<VirtAddr>,
+    /// Top of the per-process kernel stack (RSP0 for Ring 3→0 transitions).
+    pub kernel_stack_top: u64,
+    /// Whether this process has been scheduled at least once.
+    pub has_run: bool,
+    /// Whether this is a userspace process (Ring 3).
+    pub is_user: bool,
+    /// Exit code from sys_exit (Phase 7).
+    pub exit_code: u64,
 }
 
 impl ProcessControlBlock {
@@ -131,6 +146,12 @@ impl ProcessControlBlock {
             created_at,
             handle_table: HandleTable::new(),
             address_space: None,
+            saved_rsp: 0,
+            kernel_stack_base: None,
+            kernel_stack_top: 0,
+            has_run: false,
+            is_user: false,
+            exit_code: 0,
         }
     }
 
@@ -147,5 +168,9 @@ impl ProcessControlBlock {
         self.created_at = now;
         self.handle_table.clear();
         // Address space is preserved across restarts (same process identity)
+        // Phase 7: Reset execution context but preserve kernel stack allocation
+        self.saved_rsp = 0;
+        self.has_run = false;
+        // kernel_stack_base/kernel_stack_top/is_user preserved (same stack reused)
     }
 }

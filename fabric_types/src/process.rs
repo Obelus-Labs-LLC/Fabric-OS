@@ -49,6 +49,34 @@ impl fmt::Display for HandleId {
     }
 }
 
+/// Syscall numbers for the Fabric OS kernel ABI.
+/// Convention: RAX = syscall number, args in RDI, RSI, RDX, R10, R8, R9.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u64)]
+pub enum SyscallNumber {
+    /// Exit the current process. RDI = exit code.
+    Exit   = 0,
+    /// Yield the current time slice voluntarily.
+    Yield  = 1,
+    /// Write bytes to a handle. RDI = handle, RSI = buf_ptr, RDX = len.
+    Write  = 2,
+    /// Get current process ID. Returns PID in RAX.
+    GetPid = 3,
+}
+
+impl SyscallNumber {
+    /// Convert from raw u64 syscall number.
+    pub const fn from_u64(v: u64) -> Option<Self> {
+        match v {
+            0 => Some(Self::Exit),
+            1 => Some(Self::Yield),
+            2 => Some(Self::Write),
+            3 => Some(Self::GetPid),
+            _ => None,
+        }
+    }
+}
+
 /// Intent category — what kind of work a process is doing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
