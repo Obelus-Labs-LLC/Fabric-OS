@@ -937,7 +937,30 @@ C:/Users/dshon/Projects/
 
 ---
 
+---
+
+## TECHNICAL DEBT REGISTER
+
+Tracked explicitly. Every item has an introduction phase, target resolution phase, and risk level. Items are added during development and closed when resolved.
+
+| ID | Item | Phase Introduced | Phase Target | Risk | Status |
+|----|------|-----------------|-------------|------|--------|
+| TD-001 | XOR gradient placeholder in learning loop — training protocol proven, actual ML math is nonsensical | 5B | 9 | Medium | Acknowledged |
+| TD-002 | No IDT/APIC — no real hardware boot or preemptive scheduling. First interrupt = triple fault | 5B | 7 | Critical | Planned |
+| TD-003 | Lock ordering by convention only (`GOVERNANCE < COUNCIL < TABLE < STORE < BUS`), no compiler enforcement | 5B | 7 | High | Planned |
+| TD-004 | Capability revocation BFS is O(n*m) — needs parent→children index for O(n) | 5B | 6 | Medium | Acknowledged |
+| TD-005 | Simulated models only (256-byte deterministic state machines) — no real inference | 5B | 9 | Medium | Acknowledged |
+| TD-006 | OCRB tests pass in QEMU only — no real hardware testing, no SMP, no NUMA, no real device interrupts | 5B | 7 | High | Planned |
+| TD-007 | README claimed ~50K LOC (actual ~12K at Phase 5B) | 5B | — | Low | **Fixed** (585a2d0) |
+| TD-008 | `BTreeMap` in capability store allocates on insert — should be fixed-size slab for kernel use | 5B | 6 | Medium | Acknowledged |
+| TD-009 | No `#[must_use]` on critical Result types across codebase | 5B | 6 | Low | Acknowledged |
+| TD-010 | Buddy allocator free-list uses intrusive pointers in free frames — most fragile `unsafe` code | 0 | 7 | High | Acknowledged |
+| TD-011 | Serial output only (COM1 0x3F8) — real laptops need framebuffer console | 0 | 7 | Medium | Planned |
+| TD-012 | No filesystem — model loading, config, logs all require FabricFS | 5B | 8 | High | Planned |
+
+---
+
 *This document is the single source of truth for the Fabric OS — The Estate project. Hand this to any AI assistant chat session to give it full context for implementation work.*
 
-*Last updated: 2026-03-01*
-*Version: 2.0*
+*Last updated: 2026-03-02*
+*Version: 2.1*
