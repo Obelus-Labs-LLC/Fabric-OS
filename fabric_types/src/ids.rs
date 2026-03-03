@@ -92,6 +92,12 @@ impl TypeId {
     pub const COUNCIL_RESPONSE: Self = Self(0x0201);
     /// Council training request.
     pub const COUNCIL_TRAIN:    Self = Self(0x0202);
+    /// Handle creation request.
+    pub const HANDLE_CREATE:    Self = Self(0x0300);
+    /// Handle release request.
+    pub const HANDLE_RELEASE:   Self = Self(0x0301);
+    /// Break-glass event.
+    pub const BREAK_GLASS:      Self = Self(0x0302);
 
     pub const fn new(raw: u16) -> Self {
         Self(raw)

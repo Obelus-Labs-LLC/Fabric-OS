@@ -3,11 +3,14 @@
 
 extern crate alloc;
 
+mod address_space;
 mod bus;
+mod butler_state;
 mod capability;
 mod council;
 mod governance;
 mod hal;
+mod handle;
 mod memory;
 mod ocrb;
 mod panic;
@@ -30,7 +33,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v0.1.0 — Phase 5B (Adaptive Governance)");
+    serial_println!("[FABRIC]   Fabric OS v0.2.0 — Phase 6 (Memory Isolation)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -194,8 +197,35 @@ extern "C" fn _start() -> ! {
     serial_println!();
     ocrb::run_phase5b_gate();
 
+    // Phase 6: Per-Process Address Spaces + Handle ABI
+    // Clean up Phase 5B OCRB state
+    governance::GOVERNANCE.lock().clear();
+    council::COUNCIL.lock().clear();
+    process::TABLE.lock().clear();
+    process::SCHEDULER.lock().clear();
+    bus::BUS.lock().clear();
+    capability::STORE.lock().clear();
+    process::init(); // Re-init Butler
+    governance::init();
+    council::init();
+
     serial_println!();
-    serial_println!("[FABRIC] Phase 5B complete. Adaptive governance verified.");
+    serial_println!("[PHASE6] ============================================");
+    serial_println!("[PHASE6]   Phase 6 — Memory Isolation + Handle ABI");
+    serial_println!("[PHASE6] ============================================");
+
+    // Initialize Phase 6 subsystems
+    address_space::init();
+    handle::init();
+    butler_state::init();
+    phase6_self_test();
+
+    // OCRB Phase 6 Gate
+    serial_println!();
+    ocrb::run_phase6_gate();
+
+    serial_println!();
+    serial_println!("[FABRIC] Phase 6 complete. Memory isolation + handle ABI verified.");
     serial_println!("[FABRIC] Halting.");
 
     halt();
@@ -499,6 +529,53 @@ fn governance_self_test() {
     drop(gov);
 
     serial_println!("[GOV] Self-test: constitution/hash/state — OK");
+}
+
+fn phase6_self_test() {
+    use fabric_types::ProcessId;
+
+    // Test 1: Address space create/destroy
+    let addr_space = address_space::AddressSpace::create()
+        .expect("create address space");
+    assert!(addr_space.is_active());
+    assert!(addr_space.verify_kernel_mappings());
+    serial_println!("[PHASE6] Self-test: address space create + kernel mapping verify — OK");
+
+    // Drop to clean up (calls destroy)
+    drop(addr_space);
+
+    // Test 2: Handle table alloc/resolve/release
+    {
+        let mut table = process::TABLE.lock();
+        let butler = table.get_mut(ProcessId::BUTLER).expect("Butler PCB");
+
+        let handle = butler.handle_table.alloc(42).expect("alloc handle");
+        let cap_id = butler.handle_table.resolve(handle).expect("resolve handle");
+        assert_eq!(cap_id, 42);
+
+        butler.handle_table.release(handle).expect("release handle");
+
+        // Stale handle should fail
+        let stale_result = butler.handle_table.resolve(handle);
+        assert!(stale_result.is_err());
+    }
+    serial_println!("[PHASE6] Self-test: handle alloc/resolve/release/stale — OK");
+
+    // Test 3: Butler state block
+    {
+        let mgr = butler_state::BUTLER_STATE.lock();
+        assert!(mgr.is_initialized());
+        let block = mgr.load().expect("load butler state");
+        assert!(block.is_valid());
+        assert!(block.verify_checksum());
+    }
+    serial_println!("[PHASE6] Self-test: butler state persist/load/verify — OK");
+
+    // Test 4: Break-glass (just verify it's inactive at boot)
+    assert!(!governance::break_glass_active());
+    serial_println!("[PHASE6] Self-test: break-glass inactive at boot — OK");
+
+    serial_println!("[PHASE6] All Phase 6 self-tests passed");
 }
 
 fn halt() -> ! {

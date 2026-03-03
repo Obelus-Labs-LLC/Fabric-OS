@@ -5,12 +5,14 @@ use crate::memory::page_table::*;
 use crate::memory::frame;
 
 #[derive(Debug)]
+#[must_use]
 pub enum MapError {
     FrameAllocationFailed,
     AlreadyMapped,
 }
 
 #[derive(Debug)]
+#[must_use]
 pub enum UnmapError {
     NotMapped,
 }

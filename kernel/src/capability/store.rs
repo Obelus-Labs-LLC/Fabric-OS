@@ -3,6 +3,8 @@
 //! Uses BTreeMap<u64, StoredToken> for O(log n) lookup by ID. Each StoredToken
 //! wraps the wire CapabilityToken with kernel-private fields (HMAC, budget config,
 //! creation tick).
+//!
+//! Phase 6: Added parent→children index for O(n) cascading revocation (TD-004).
 
 #![allow(dead_code)]
 
@@ -27,6 +29,7 @@ pub struct StoredToken {
 
 /// Error types for capability operations.
 #[derive(Debug)]
+#[must_use]
 pub enum CapabilityError {
     NotFound,
     InvalidHmac,
@@ -42,6 +45,8 @@ pub enum CapabilityError {
 /// The capability store holding all live tokens and associated tracking state.
 pub struct CapabilityStore {
     tokens: BTreeMap<u64, StoredToken>,
+    /// Parent → children index for O(n) cascading revocation (TD-004).
+    children: BTreeMap<u64, Vec<u64>>,
     next_id: u64,
     budget_tracker: BudgetTracker,
     nonce_tracker: NonceTracker,
@@ -52,6 +57,7 @@ impl CapabilityStore {
     pub const fn new() -> Self {
         Self {
             tokens: BTreeMap::new(),
+            children: BTreeMap::new(),
             next_id: 1,
             budget_tracker: BudgetTracker::new(),
             nonce_tracker: NonceTracker::new(),
@@ -67,6 +73,7 @@ impl CapabilityStore {
     }
 
     /// Create a new root capability (not delegated).
+    #[must_use]
     pub fn create(
         &mut self,
         resource: ResourceId,
@@ -105,6 +112,7 @@ impl CapabilityStore {
 
     /// Delegate: create a child capability from a parent.
     /// Parent must have GRANT permission. Child permissions must be a subset of parent's.
+    #[must_use]
     pub fn delegate(
         &mut self,
         parent_id: u64,
@@ -160,12 +168,16 @@ impl CapabilityStore {
             created_at: self.current_tick,
         });
 
+        // TD-004: Maintain parent→children index
+        self.children.entry(parent_id).or_insert_with(Vec::new).push(id);
+
         Ok(CapabilityId::new(id))
     }
 
     /// Validate a token for a specific operation.
     /// Checks: exists, HMAC integrity, not expired, permissions sufficient,
     /// nonce valid, budget not exhausted.
+    #[must_use]
     pub fn validate(
         &mut self,
         token_id: u64,
@@ -212,31 +224,40 @@ impl CapabilityStore {
 
     /// Revoke a token and all its descendants (cascading revocation).
     /// Returns the count of tokens removed.
+    ///
+    /// TD-004: Uses parent→children index for O(n) tree walk instead of O(n*m) scan.
+    #[must_use]
     pub fn revoke(&mut self, token_id: u64) -> Result<usize, CapabilityError> {
         if !self.tokens.contains_key(&token_id) {
             return Err(CapabilityError::NotFound);
         }
 
-        // BFS to find all descendants
-        let mut to_revoke: Vec<u64> = Vec::new();
-        to_revoke.push(token_id);
-        let mut i = 0;
+        // DFS via children index — O(n) where n = number of descendants
+        let mut stack: Vec<u64> = Vec::new();
+        stack.push(token_id);
+        let mut count = 0;
 
-        while i < to_revoke.len() {
-            let parent = to_revoke[i];
-            for (&id, stored) in self.tokens.iter() {
-                if stored.token.delegated_from == parent && !to_revoke.contains(&id) {
-                    to_revoke.push(id);
-                }
+        while let Some(id) = stack.pop() {
+            // Push children onto stack before removing
+            if let Some(kids) = self.children.remove(&id) {
+                stack.extend(kids);
             }
-            i += 1;
+            // Remove the token itself
+            if self.tokens.remove(&id).is_some() {
+                self.budget_tracker.remove(id);
+                self.nonce_tracker.remove(id);
+                count += 1;
+            }
         }
 
-        let count = to_revoke.len();
-        for id in &to_revoke {
-            self.tokens.remove(id);
-            self.budget_tracker.remove(*id);
-            self.nonce_tracker.remove(*id);
+        // Remove from parent's children list
+        if let Some(stored) = self.tokens.get(&token_id) {
+            let parent = stored.token.delegated_from;
+            if parent != 0 {
+                if let Some(siblings) = self.children.get_mut(&parent) {
+                    siblings.retain(|&x| x != token_id);
+                }
+            }
         }
 
         Ok(count)
@@ -275,6 +296,7 @@ impl CapabilityStore {
     /// Clear the entire store (for testing).
     pub fn clear(&mut self) {
         self.tokens.clear();
+        self.children.clear();
         self.budget_tracker.clear();
         self.nonce_tracker.clear();
         self.next_id = 1;

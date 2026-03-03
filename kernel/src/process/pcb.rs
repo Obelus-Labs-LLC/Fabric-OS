@@ -2,7 +2,7 @@
 //!
 //! The PCB extends the shared wire types from `fabric_types::process` with
 //! kernel-only fields: behavioral profile, supervision tree links, scheduling
-//! metadata, and capability references.
+//! metadata, capability references, handle table, and address space.
 
 #![allow(dead_code)]
 
@@ -13,6 +13,8 @@ use fabric_types::{
 };
 
 use super::supervisor::RestartTracker;
+use crate::handle::HandleTable;
+use crate::address_space::AddressSpace;
 
 /// Exit reason when a process terminates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,6 +89,12 @@ pub struct ProcessControlBlock {
     // Lifecycle
     pub exit_reason: Option<ExitReason>,
     pub created_at: Timestamp,
+
+    // Phase 6: Per-process handle table (fixed 256-slot slab, no heap)
+    pub handle_table: HandleTable,
+
+    // Phase 6: Per-process address space (PML4 page table)
+    pub address_space: Option<AddressSpace>,
 }
 
 impl ProcessControlBlock {
@@ -121,6 +129,8 @@ impl ProcessControlBlock {
             profile: BehavioralProfile::new(),
             exit_reason: None,
             created_at,
+            handle_table: HandleTable::new(),
+            address_space: None,
         }
     }
 
@@ -135,5 +145,7 @@ impl ProcessControlBlock {
         self.profile.reset();
         self.exit_reason = None;
         self.created_at = now;
+        self.handle_table.clear();
+        // Address space is preserved across restarts (same process identity)
     }
 }

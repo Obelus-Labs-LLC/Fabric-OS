@@ -6,6 +6,48 @@
 #![allow(dead_code)]
 
 use crate::ids::Timestamp;
+use core::fmt;
+
+/// Opaque handle index for capability access (u64, Wasm-compatible).
+/// Encodes slot index (bits 0-7) and generation counter (bits 8-23).
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct HandleId(pub u64);
+
+impl HandleId {
+    pub const INVALID: Self = Self(0xFFFF_FFFF_FFFF_FFFF);
+
+    pub const fn new(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    /// Extract the slot index (bits 0-7).
+    pub const fn slot(self) -> u8 {
+        (self.0 & 0xFF) as u8
+    }
+
+    /// Extract the generation counter (bits 8-23).
+    pub const fn generation(self) -> u16 {
+        ((self.0 >> 8) & 0xFFFF) as u16
+    }
+
+    /// Pack a slot index and generation into a HandleId.
+    pub const fn pack(slot: u8, generation: u16) -> Self {
+        Self((slot as u64) | ((generation as u64) << 8))
+    }
+}
+
+impl fmt::Debug for HandleId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Handle(slot:{}, gen:{})", self.slot(), self.generation())
+    }
+}
+
+impl fmt::Display for HandleId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "h:{}:{}", self.slot(), self.generation())
+    }
+}
 
 /// Intent category — what kind of work a process is doing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

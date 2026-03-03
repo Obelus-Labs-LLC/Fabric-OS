@@ -1,7 +1,8 @@
-//! Deterministic Governance Engine — Phase 5A of Fabric OS.
+//! Deterministic Governance Engine — Phase 5A+6 of Fabric OS.
 //!
 //! Provides policy-gated message routing through a flat rules engine,
-//! safety state machine, ACS lifecycle, and constitution integrity verification.
+//! safety state machine, ACS lifecycle, constitution integrity verification,
+//! and break-glass emergency bypass (Phase 6).
 //!
 //! Public API:
 //!   governance::init()              — Load constitution, verify hash, boot state machines
@@ -19,6 +20,7 @@ pub mod constitution;
 pub mod safety;
 pub mod acs;
 pub mod wp_protect;
+pub mod break_glass;
 
 use spin::Mutex;
 use fabric_types::MessageHeader;
@@ -30,6 +32,7 @@ use rules::{RuleEngine, EvalContext};
 use constitution::{genesis_rules, compute_constitution_hash, AmendmentTracker};
 use safety::SafetyStateMachine;
 use acs::AcsStateMachine;
+use break_glass::BreakGlass;
 
 /// Global governance engine instance.
 pub static GOVERNANCE: Mutex<GovernanceEngine> = Mutex::new(GovernanceEngine::new());
@@ -40,6 +43,7 @@ pub struct GovernanceEngine {
     pub safety: SafetyStateMachine,
     pub acs: AcsStateMachine,
     pub amendments: AmendmentTracker,
+    pub break_glass: BreakGlass,
     /// SHA3-256 hash of the constitution at boot.
     pub constitution_hash: [u8; 32],
     /// Current governance tick.
@@ -48,6 +52,8 @@ pub struct GovernanceEngine {
     total_evaluations: u64,
     /// Total denials.
     total_denials: u64,
+    /// Total break-glass bypasses.
+    total_break_glass_bypasses: u64,
     /// Initialized flag.
     initialized: bool,
 }
@@ -59,10 +65,12 @@ impl GovernanceEngine {
             safety: SafetyStateMachine::new(),
             acs: AcsStateMachine::new(),
             amendments: AmendmentTracker::new(),
+            break_glass: BreakGlass::new(),
             constitution_hash: [0u8; 32],
             current_tick: 0,
             total_evaluations: 0,
             total_denials: 0,
+            total_break_glass_bypasses: 0,
             initialized: false,
         }
     }
@@ -85,6 +93,15 @@ impl GovernanceEngine {
         if self.acs.take_emergency_trigger() {
             self.safety.force_lockdown(self.current_tick);
         }
+
+        // Check break-glass conditions
+        self.break_glass.check_and_activate(
+            self.safety.state(),
+            self.acs.state(),
+            self.current_tick,
+        );
+        self.break_glass.check_expiry(self.current_tick);
+        self.break_glass.check_recovery(self.safety.state());
     }
 
     /// Advance governance ticks by N.
@@ -116,9 +133,11 @@ impl GovernanceEngine {
         self.safety.reset();
         self.acs.reset();
         self.amendments.reset();
+        self.break_glass.reset();
         self.current_tick = 0;
         self.total_evaluations = 0;
         self.total_denials = 0;
+        self.total_break_glass_bypasses = 0;
         // Re-load genesis rules (don't clear them)
         let rules = genesis_rules();
         self.rules.load_rules(&rules);
@@ -146,11 +165,22 @@ pub fn init() {
 ///
 /// Lock ordering: acquires GOVERNANCE, then briefly TABLE, then briefly STORE.
 /// All released before returning, so caller can safely lock BUS afterward.
+///
+/// Phase 6: If break-glass is active, bypasses governance and returns Allow
+/// with an audit counter increment.
 pub fn evaluate_policy(header: &MessageHeader) -> Result<(), BusError> {
     let mut gov = GOVERNANCE.lock();
 
     if !gov.initialized {
         return Ok(()); // Governance not yet initialized — allow all
+    }
+
+    // Phase 6: Break-glass bypass
+    if gov.break_glass.is_active() {
+        gov.break_glass.log_operation();
+        gov.total_break_glass_bypasses += 1;
+        gov.total_evaluations += 1;
+        return Ok(());
     }
 
     // Build eval context while holding GOVERNANCE lock.
@@ -262,4 +292,9 @@ pub fn heartbeat() {
 /// Verify constitution integrity.
 pub fn verify_constitution() -> bool {
     GOVERNANCE.lock().verify_constitution()
+}
+
+/// Query break-glass state.
+pub fn break_glass_active() -> bool {
+    GOVERNANCE.lock().break_glass.is_active()
 }

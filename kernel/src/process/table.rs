@@ -11,6 +11,7 @@ pub const MAX_PROCESSES: usize = 1024;
 
 /// Error types for process operations.
 #[derive(Debug)]
+#[must_use]
 pub enum ProcessError {
     TableFull,
     NotFound,

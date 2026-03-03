@@ -119,3 +119,17 @@ pub struct CouncilVerdict {
     /// Per-model votes (Tier 3 only; default Allow for unused slots).
     pub model_votes: [PolicyVerdict; 3],
 }
+
+// === Break-Glass (Phase 6) types ===
+
+/// Reason for break-glass activation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum BreakGlassReason {
+    /// Governance rule engine encountered an unrecoverable error.
+    GovernancePanic = 0,
+    /// All ACS succession nodes failed.
+    AcsSuccessionFailed = 1,
+    /// Safety state locked down with no recovery path.
+    SafetyLockdown = 2,
+}
