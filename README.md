@@ -11,7 +11,7 @@
 
 ## 1. CORE IDENTITY
 
-Fabric OS is a ground-up operating system built on an AI-coordinated microkernel architecture. It is NOT Linux-based. The kernel is ~50K lines of Rust. Every subsystem communicates through a single typed message bus. Security is capability-based (no root, no superuser, no ACLs). AI prediction runs in the kernel but is fully detachable — the OS works without it.
+Fabric OS is a ground-up operating system built on an AI-coordinated microkernel architecture. It is NOT Linux-based. The kernel is ~12K lines of Rust today (Phase 5B), targeting ~50K at full completion. Every subsystem communicates through a single typed message bus. Security is capability-based (no root, no superuser, no ACLs). AI prediction runs in the kernel but is fully detachable — the OS works without it.
 
 The Estate is a modular AI agent ecosystem that runs on top of Fabric OS — 11 specialized agents (Butler, Maid, Groundskeeper, Chauffeur, Concierge, Archivist, Oracle, Alchemist, Therapist, Quartermaster, Curator) providing everything from system supervision to financial monitoring to personal wellness.
 
@@ -26,7 +26,7 @@ What makes Fabric meaningfully different from Linux + AppArmor:
 
 ## 2. MICROKERNEL SPECIFICATION
 
-### Ring 0 — Only 5 Subsystems (~50K lines Rust)
+### Ring 0 — Only 5 Subsystems (~12K lines Rust, Phase 5B)
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -183,7 +183,7 @@ struct PredictionHint {
 ╠═══════╪═══════════╪═══════════╪═════════════╪════════════════════╣
 ║       │           │           │             │                    ║
 ║  ┌────┴────────────┴───────────┴─────────────┴──────────────┐    ║
-║  │              MICROKERNEL (Ring 0, ~50K LOC Rust)         │    ║
+║  │              MICROKERNEL (Ring 0, ~12K LOC Rust)         │    ║
 ║  │  Memory │ IPC Bus │ CapManager │ Scheduler │ Interrupts  │    ║
 ║  └──────────────────────────────────────────────────────────┘    ║
 ║                                                                  ║
