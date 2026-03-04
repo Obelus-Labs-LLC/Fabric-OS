@@ -605,7 +605,7 @@ Orbital Readiness Index: composite 0-100 score. Must be ≥80 for each phase to 
 | **Groundskeeper** | Hardware monitoring, sensors, AI prediction feed | HAL + AI prediction layer |
 | **Chauffeur** | Network management, connectivity, Aether policies | Network stack + Aether |
 | **Concierge** | User-facing communication, notifications, intent parsing | UI/notification subsystem |
-| **Archivist** | Storage management, file organization, versioning | FabricFS service |
+| **Archivist** | Persistent memory, observation, context across sessions | FabricFS + audit chain |
 
 ### Premium Agents (Monetized)
 
@@ -619,6 +619,58 @@ Orbital Readiness Index: composite 0-100 score. Must be ≥80 for each phase to 
 
 ### Oracle Note
 Oracle is user-facing and SEPARATE from the kernel AI layer. The kernel AI prediction layer (Groundskeeper's domain) is infrastructure. Oracle is a premium assistant that provides insights TO the user. Different scope, different layer.
+
+### Archivist — Memory and Observation System
+
+**Core Function:** Persistent user memory across sessions. Not file search. Not history. *Context.*
+
+**Capture**
+- Subscribes to kernel audit chain (already tamper-evident, hash-chained)
+- Logs: file edits, app usage, agent actions, system events, user queries
+- Hourly compression: AI summarizes into progressive layers
+
+**Storage**
+- SQLite: structured observations, metadata, timestamps
+- Vector DB (Chroma or equivalent): semantic embeddings for similarity search
+- Local only: no cloud, user controls retention
+
+**Retrieval — Progressive Disclosure**
+
+| Layer | Query | Response |
+|:---|:---|:---|
+| **Index** | "what was I doing?" | 5 topics, 20 tokens each |
+| **Timeline** | "tell me about the mesh networking" | Chronological context |
+| **Detail** | "show me the code from Tuesday" | Full file, diff, reasoning |
+
+**Interface**
+- Natural language: Concierge voice or text
+- FabricScript: `memory where "authentication" and "bug" this week`
+- Visual: timeline browser, graph view of project relationships
+
+**Prediction**
+- Groundskeeper integration: "you open Blender after these files"
+- Workspace auto-setup: restore state from previous session
+- Anomaly detection: "you never delete files at 3am, confirm?"
+
+**Privacy**
+- User marks `<private>` tags: excluded from compression
+- Per-app exclusion: incognito mode for sensitive tools
+- Retention policies: auto-delete after N days, manual wipe
+
+**Integration Points**
+
+| System | Relationship |
+|:---|:---|
+| **Kernel audit chain** | Capture source — tamper-evident observations |
+| **Concierge** | Query interface — natural language memory access |
+| **Groundskeeper** | Prediction input — behavioral pattern feed |
+| **Oracle** | Insight generation — long-term trend analysis |
+| **FabricFS** | Semantic file relations — context-aware storage |
+
+**Implementation Status**
+- Basic capture and search: Phase 16 (FabricFS and desktop environment)
+- Core memory system: Phase 18 (AI Prediction Layer)
+- Full prediction and workspace restore: Phase 19 (Estate marketplace maturity)
 
 ---
 
@@ -849,8 +901,11 @@ Items from the original README roadmap that were deferred in favor of practical 
 | **L8** | Media: video/audio playback (MP4, WebM) | YouTube, streaming |
 | **L9** | AI-native mode: intent parser, planning engine, agent orchestration | Differentiation from Chrome |
 | **L10** | Hardware target, daily driver candidate | Ship it |
+| **A1** | Archivist: audit chain capture + SQLite observation store | Persistent memory foundation |
+| **A2** | Archivist: vector embeddings + progressive disclosure queries | Semantic memory retrieval |
+| **A3** | Archivist: Groundskeeper prediction feed + workspace restore | Context-aware workspace |
 
-**Tier 3 Done When:** Loom handles 80% of browsing. Traditional mode for compatibility, AI mode for transformation. FabricOS is daily driver for developers and power users.
+**Tier 3 Done When:** Loom handles 80% of browsing. Archivist provides persistent cross-session memory. Traditional mode for compatibility, AI mode for transformation. FabricOS is daily driver for developers and power users.
 
 ### TIER 4: SCALE (Post-Completion)
 
