@@ -398,12 +398,21 @@ pub fn spawn_elf(
     use crate::elf;
 
     // Create a per-process address space
+    serial_println!("[SPAWN_ELF] Creating address space...");
     let mut addr_space = crate::address_space::AddressSpace::create()
-        .map_err(|_| ProcessError::TableFull)?;
+        .map_err(|e| {
+            serial_println!("[SPAWN_ELF] AddressSpace::create failed: {:?}", e);
+            ProcessError::TableFull
+        })?;
 
     // Load ELF binary into the address space
+    serial_println!("[SPAWN_ELF] Loading ELF ({} bytes)...", elf_data.len());
     let entry_point = elf::load_elf(elf_data, &mut addr_space)
-        .map_err(|_| ProcessError::TableFull)?;
+        .map_err(|e| {
+            serial_println!("[SPAWN_ELF] load_elf failed: {:?}", e);
+            ProcessError::TableFull
+        })?;
+    serial_println!("[SPAWN_ELF] ELF loaded, entry=0x{:x}", entry_point);
 
     // Map user stack pages
     let stack_base = elf::USER_STACK_BASE;
@@ -430,6 +439,38 @@ pub fn spawn_elf(
             stack_flags,
         ).map_err(|_| ProcessError::TableFull)?;
     }
+    serial_println!("[SPAWN_ELF] Stack mapped ({} pages)", stack_pages);
+
+    // Map user heap pages (0x800000 - 0x1000000 = 8MB for bump allocator)
+    // Placed at 8MB to avoid conflicts with ELF code segments
+    let heap_base: u64 = 0x800000;
+    let heap_pages: u64 = 2048; // 8MB
+    serial_println!("[SPAWN_ELF] Mapping {} heap pages at 0x{:x}...", heap_pages, heap_base);
+    for i in 0..heap_pages {
+        let page_va = heap_base + i * PAGE_SIZE as u64;
+        let heap_frame = frame::allocate_frame()
+            .ok_or_else(|| {
+                serial_println!("[SPAWN_ELF] Out of frames at heap page {}/{}", i, heap_pages);
+                ProcessError::TableFull
+            })?;
+        unsafe {
+            core::ptr::write_bytes(
+                heap_frame.to_virt().as_u64() as *mut u8,
+                0,
+                PAGE_SIZE,
+            );
+        }
+        let heap_flags = PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
+        addr_space.map_user_page(
+            VirtAddr::new(page_va),
+            heap_frame,
+            heap_flags,
+        ).map_err(|e| {
+            serial_println!("[SPAWN_ELF] map_user_page failed at heap page {}: {:?}", i, e);
+            ProcessError::TableFull
+        })?;
+    }
+    serial_println!("[SPAWN_ELF] Heap mapped ({} pages = {}MB)", heap_pages, heap_pages * 4 / 1024);
 
     let user_stack_top = elf::USER_STACK_TOP;
 

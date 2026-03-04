@@ -333,7 +333,7 @@ extern "C" fn syscall_dispatch(frame: *mut SavedContext) {
         15 => {
             let buf_ptr = frame.rsi;
             let len = frame.rdx;
-            if buf_ptr >= 0x0000_8000_0000_0000 || len >= 4096 {
+            if buf_ptr >= 0x0000_8000_0000_0000 || len > 65536 {
                 frame.rax = u64::MAX;
                 return;
             }
@@ -347,7 +347,7 @@ extern "C" fn syscall_dispatch(frame: *mut SavedContext) {
         16 => {
             let buf_ptr = frame.rsi;
             let len = frame.rdx;
-            if buf_ptr >= 0x0000_8000_0000_0000 || len >= 4096 {
+            if buf_ptr >= 0x0000_8000_0000_0000 || len > 65536 {
                 frame.rax = u64::MAX;
                 return;
             }
@@ -360,6 +360,132 @@ extern "C" fn syscall_dispatch(frame: *mut SavedContext) {
         // SYS_SHUTDOWN: rdi = fd
         17 => {
             frame.rax = syscall_shutdown(frame.rdi);
+        },
+
+        // SYS_DISPLAY_ALLOC_SURFACE: rdi = width, rsi = height
+        18 => {
+            frame.rax = syscall_display_alloc_surface(frame.rdi as u32, frame.rsi as u32);
+        },
+
+        // SYS_DISPLAY_BLIT: rdi = surface_id, rsi = buf_ptr, rdx = len
+        19 => {
+            let buf_ptr = frame.rsi;
+            let len = frame.rdx;
+            if buf_ptr >= 0x0000_8000_0000_0000 {
+                frame.rax = u64::MAX;
+                return;
+            }
+            frame.rax = syscall_display_blit(frame.rdi as u32, buf_ptr, len as usize);
+        },
+
+        // SYS_DISPLAY_PRESENT: rdi = surface_id
+        20 => {
+            frame.rax = syscall_display_present(frame.rdi as u32);
+        },
+
+        // SYS_KB_READ: read a key from keyboard buffer
+        21 => {
+            let mut kb = crate::keyboard::KEYBOARD_BUFFER.lock();
+            frame.rax = match kb.pop() {
+                Some(ch) => ch as u64,
+                None => 0,
+            };
+        },
+
+        // SYS_DNS_RESOLVE: rdi = name_ptr, rsi = name_len
+        22 => {
+            let name_ptr = frame.rdi;
+            let name_len = frame.rsi;
+            if name_ptr >= 0x0000_8000_0000_0000 || name_len > 256 {
+                frame.rax = u64::MAX;
+            } else {
+                let name_slice = unsafe {
+                    core::slice::from_raw_parts(name_ptr as *const u8, name_len as usize)
+                };
+                if let Ok(hostname) = core::str::from_utf8(name_slice) {
+                    match crate::network::dns::dns_resolve(hostname) {
+                        Some(ip) => {
+                            frame.rax = ((ip[0] as u64) << 24)
+                                | ((ip[1] as u64) << 16)
+                                | ((ip[2] as u64) << 8)
+                                | (ip[3] as u64);
+                        }
+                        None => frame.rax = u64::MAX,
+                    }
+                } else {
+                    frame.rax = u64::MAX;
+                }
+            }
+        },
+
+        // SYS_SENDTO: rdi = fd, rsi = buf_ptr, rdx = len, r10 = dest_ip (u32), r8 = dest_port
+        23 => {
+            let fd = frame.rdi;
+            let buf_ptr = frame.rsi;
+            let len = frame.rdx;
+            let dest_ip = frame.r10 as u32;
+            let dest_port = frame.r8 as u16;
+
+            if buf_ptr >= 0x0000_8000_0000_0000 || len > 65536 {
+                frame.rax = u64::MAX;
+            } else {
+                let data = unsafe {
+                    core::slice::from_raw_parts(buf_ptr as *const u8, len as usize)
+                };
+
+                let sock_id = match resolve_socket_fd(fd) {
+                    Some(id) => id,
+                    None => { frame.rax = u64::MAX; return; }
+                };
+
+                use crate::network::addr::{Ipv4Addr, SocketAddr};
+                let dst = SocketAddr::new(Ipv4Addr::from_u32(dest_ip), dest_port);
+
+                match crate::network::ops::socket_sendto(sock_id, data, dst) {
+                    Ok(n) => frame.rax = n as u64,
+                    Err(_) => frame.rax = u64::MAX,
+                }
+            }
+        },
+
+        // SYS_POLL: rdi = fds_ptr, rsi = nfds, rdx = timeout_ms
+        24 => {
+            let fds_ptr = frame.rdi;
+            let nfds = frame.rsi as usize;
+            let timeout_ms = frame.rdx as i64;
+
+            if fds_ptr >= 0x0000_8000_0000_0000 || nfds > 16 {
+                frame.rax = u64::MAX;
+            } else {
+                use crate::network::ops::PollFd;
+                let user_fds = unsafe {
+                    core::slice::from_raw_parts_mut(
+                        fds_ptr as *mut PollFd,
+                        nfds,
+                    )
+                };
+
+                // Copy to kernel and resolve handle slot → SocketId
+                let mut kernel_fds = [PollFd { fd: 0, events: 0, revents: 0 }; 16];
+                for (i, pfd) in user_fds.iter().enumerate() {
+                    kernel_fds[i].events = pfd.events;
+                    kernel_fds[i].revents = 0;
+                    if let Some(sock_id) = resolve_socket_fd(pfd.fd as u64) {
+                        kernel_fds[i].fd = sock_id.0;
+                    } else {
+                        kernel_fds[i].fd = u32::MAX; // Invalid — socket_poll will skip
+                    }
+                }
+
+                let result = crate::network::ops::socket_poll(&mut kernel_fds[..nfds], timeout_ms);
+
+                // Copy revents back to userspace
+                for (i, pfd) in user_fds.iter_mut().enumerate() {
+                    pfd.revents = kernel_fds[i].revents;
+                }
+
+                frame.rax = result as u64;
+            }
         },
 
         _ => {
@@ -742,6 +868,105 @@ fn alloc_handle(value: u64) -> Option<u8> {
         Ok(handle) => Some(handle.slot()),
         Err(_) => None,
     }
+}
+
+// ============================================================================
+// Display syscall helpers — alloc surface, blit pixels, present to screen
+// ============================================================================
+
+/// SYS_DISPLAY_ALLOC_SURFACE: allocate a new surface of given dimensions.
+/// Returns surface_id (u64) or u64::MAX on failure.
+fn syscall_display_alloc_surface(width: u32, height: u32) -> u64 {
+    use crate::display::{SURFACE_TABLE, SurfaceId};
+
+    // Sanity check dimensions (max 4096x4096 = 64MB)
+    if width == 0 || height == 0 || width > 4096 || height > 4096 {
+        return u64::MAX;
+    }
+
+    if let Some(mut table) = SURFACE_TABLE.try_lock() {
+        match table.alloc(width, height) {
+            Some(id) => {
+                serial_println!("[SYSCALL] display_alloc_surface({}x{}) -> {}", width, height, id.0);
+                id.0 as u64
+            }
+            None => u64::MAX,
+        }
+    } else {
+        u64::MAX
+    }
+}
+
+/// SYS_DISPLAY_BLIT: copy pixel data from userspace buffer into surface.
+/// buf_ptr points to packed u32 pixels (width * height * 4 bytes).
+/// Returns 0 on success, u64::MAX on error.
+/// One-shot blit log counter.
+static BLIT_LOG_COUNT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+fn syscall_display_blit(surface_id: u32, buf_ptr: u64, len: usize) -> u64 {
+    use crate::display::{SURFACE_TABLE, SurfaceId};
+
+    if let Some(mut table) = SURFACE_TABLE.try_lock() {
+        let id = SurfaceId(surface_id);
+        if let Some(surface) = table.get_mut(id) {
+            let expected = surface.buffer.len() * 4;
+            if len != expected {
+                if BLIT_LOG_COUNT.load(core::sync::atomic::Ordering::Relaxed) < 3 {
+                    BLIT_LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                    serial_println!("[SYSCALL] display_blit: size mismatch expected={} got={}", expected, len);
+                }
+                return u64::MAX;
+            }
+            // Copy from user buffer into surface
+            let src = unsafe {
+                core::slice::from_raw_parts(buf_ptr as *const u32, surface.buffer.len())
+            };
+            surface.buffer.copy_from_slice(src);
+            surface.dirty = true;
+            if BLIT_LOG_COUNT.load(core::sync::atomic::Ordering::Relaxed) < 3 {
+                BLIT_LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                serial_println!("[SYSCALL] display_blit(surface={}, buf=0x{:x}, len={}) -> ok", surface_id, buf_ptr, len);
+            }
+            return 0;
+        }
+    }
+    u64::MAX
+}
+
+/// SYS_DISPLAY_PRESENT: blit surface to hardware framebuffer.
+/// Returns 0 on success, u64::MAX on error.
+/// One-shot present log counter.
+static PRESENT_LOG_COUNT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+fn syscall_display_present(surface_id: u32) -> u64 {
+    use crate::display::{DISPLAY, SURFACE_TABLE, SurfaceId};
+    use crate::display::compositor;
+
+    if let Some(table) = SURFACE_TABLE.try_lock() {
+        let id = SurfaceId(surface_id);
+        if let Some(surface) = table.get(id) {
+            if let Some(display) = DISPLAY.try_lock() {
+                if let Some(ref ds) = *display {
+                    compositor::present(surface, &ds.fb);
+                    if PRESENT_LOG_COUNT.load(core::sync::atomic::Ordering::Relaxed) < 3 {
+                        PRESENT_LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                        serial_println!("[SYSCALL] display_present(surface={}) -> ok (fb={}x{})", surface_id, ds.fb.width, ds.fb.height);
+                    }
+                    return 0;
+                } else if PRESENT_LOG_COUNT.load(core::sync::atomic::Ordering::Relaxed) < 3 {
+                    PRESENT_LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                    serial_println!("[SYSCALL] display_present: DISPLAY is None");
+                }
+            } else if PRESENT_LOG_COUNT.load(core::sync::atomic::Ordering::Relaxed) < 3 {
+                PRESENT_LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+                serial_println!("[SYSCALL] display_present: DISPLAY lock contention");
+            }
+        } else if PRESENT_LOG_COUNT.load(core::sync::atomic::Ordering::Relaxed) < 3 {
+            PRESENT_LOG_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            serial_println!("[SYSCALL] display_present: surface {} not found", surface_id);
+        }
+    }
+    u64::MAX
 }
 
 // ============================================================================

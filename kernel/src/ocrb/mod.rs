@@ -11,6 +11,10 @@ pub mod isolation_gate;
 pub mod hardware_gate;
 pub mod vfs_gate;
 pub mod network_gate;
+pub mod display_gate;
+pub mod nic_keyboard_gate;
+pub mod net_integration_gate;
+pub mod tcp_reliability_gate;
 
 use alloc::string::String;
 use crate::serial_println;
@@ -511,6 +515,186 @@ pub fn run_phase9_gate() {
 
     if ori >= 80 {
         serial_println!("[OCRB] GATE: PASS — Phase 9 network stack verified");
+    } else {
+        serial_println!("[OCRB] GATE: FAIL — ORI below 80 threshold");
+    }
+
+    serial_println!("[OCRB] ============================================");
+}
+
+/// Run all Phase 10 OCRB tests and print results
+pub fn run_phase10_gate() {
+    serial_println!("[OCRB] ============================================");
+    serial_println!("[OCRB]   Phase 10 — Display System Gate");
+    serial_println!("[OCRB] ============================================");
+
+    let results = display_gate::run_all_tests();
+
+    let mut weighted_sum: u32 = 0;
+    let mut total_weight: u32 = 0;
+
+    for result in &results {
+        let status = if result.passed { "PASS" } else { "FAIL" };
+        serial_println!(
+            "[OCRB] {} [{:>3}/100] (w:{:>2}) — {}",
+            status,
+            result.score,
+            result.weight,
+            result.test_name
+        );
+        if !result.details.is_empty() {
+            serial_println!("[OCRB]   {}", result.details);
+        }
+        weighted_sum += result.score as u32 * result.weight as u32;
+        total_weight += result.weight as u32;
+    }
+
+    let ori = if total_weight > 0 {
+        weighted_sum / total_weight
+    } else {
+        0
+    };
+
+    serial_println!("[OCRB] ============================================");
+    serial_println!("[OCRB] ORI Score: {}/100", ori);
+
+    if ori >= 80 {
+        serial_println!("[OCRB] GATE: PASS — Phase 10 display system verified");
+    } else {
+        serial_println!("[OCRB] GATE: FAIL — ORI below 80 threshold");
+    }
+
+    serial_println!("[OCRB] ============================================");
+}
+
+/// Run all Phase 11 OCRB tests and print results
+pub fn run_phase11_gate() {
+    serial_println!("[OCRB] ============================================");
+    serial_println!("[OCRB]   Phase 11 — NIC + Keyboard Gate");
+    serial_println!("[OCRB] ============================================");
+
+    let results = nic_keyboard_gate::run_all_tests();
+
+    let mut weighted_sum: u32 = 0;
+    let mut total_weight: u32 = 0;
+
+    for result in &results {
+        let status = if result.passed { "PASS" } else { "FAIL" };
+        serial_println!(
+            "[OCRB] {} [{:>3}/100] (w:{:>2}) — {}",
+            status,
+            result.score,
+            result.weight,
+            result.test_name
+        );
+        if !result.details.is_empty() {
+            serial_println!("[OCRB]   {}", result.details);
+        }
+        weighted_sum += result.score as u32 * result.weight as u32;
+        total_weight += result.weight as u32;
+    }
+
+    let ori = if total_weight > 0 {
+        weighted_sum / total_weight
+    } else {
+        0
+    };
+
+    serial_println!("[OCRB] ============================================");
+    serial_println!("[OCRB] ORI Score: {}/100", ori);
+
+    if ori >= 80 {
+        serial_println!("[OCRB] GATE: PASS — Phase 11 NIC + keyboard verified");
+    } else {
+        serial_println!("[OCRB] GATE: FAIL — ORI below 80 threshold");
+    }
+
+    serial_println!("[OCRB] ============================================");
+}
+
+/// Run all Phase 12 OCRB tests and print results
+pub fn run_phase12_gate() {
+    serial_println!("[OCRB] ============================================");
+    serial_println!("[OCRB]   Phase 12 — NIC Integration Gate");
+    serial_println!("[OCRB] ============================================");
+
+    let results = net_integration_gate::run_all_tests();
+
+    let mut weighted_sum: u32 = 0;
+    let mut total_weight: u32 = 0;
+
+    for result in &results {
+        let status = if result.passed { "PASS" } else { "FAIL" };
+        serial_println!(
+            "[OCRB] {} [{:>3}/100] (w:{:>2}) — {}",
+            status,
+            result.score,
+            result.weight,
+            result.test_name
+        );
+        if !result.details.is_empty() {
+            serial_println!("[OCRB]   {}", result.details);
+        }
+        weighted_sum += result.score as u32 * result.weight as u32;
+        total_weight += result.weight as u32;
+    }
+
+    let ori = if total_weight > 0 {
+        weighted_sum / total_weight
+    } else {
+        0
+    };
+
+    serial_println!("[OCRB] ============================================");
+    serial_println!("[OCRB] ORI Score: {}/100", ori);
+
+    if ori >= 80 {
+        serial_println!("[OCRB] GATE: PASS — Phase 12 NIC integration verified");
+    } else {
+        serial_println!("[OCRB] GATE: FAIL — ORI below 80 threshold");
+    }
+
+    serial_println!("[OCRB] ============================================");
+}
+
+/// Run all Phase 13 OCRB tests and print results
+pub fn run_phase13_gate() {
+    serial_println!("[OCRB] ============================================");
+    serial_println!("[OCRB]   Phase 13 — TCP Reliability & Async I/O Gate");
+    serial_println!("[OCRB] ============================================");
+
+    let results = tcp_reliability_gate::run_all_tests();
+
+    let mut weighted_sum: u32 = 0;
+    let mut total_weight: u32 = 0;
+
+    for result in &results {
+        let status = if result.passed { "PASS" } else { "FAIL" };
+        serial_println!(
+            "[OCRB] {} [{:>3}/100] (w:{:>2}) — {}",
+            status,
+            result.score,
+            result.weight,
+            result.test_name
+        );
+        if !result.details.is_empty() {
+            serial_println!("[OCRB]   {}", result.details);
+        }
+        weighted_sum += result.score as u32 * result.weight as u32;
+        total_weight += result.weight as u32;
+    }
+
+    let ori = if total_weight > 0 {
+        weighted_sum / total_weight
+    } else {
+        0
+    };
+
+    serial_println!("[OCRB] ============================================");
+    serial_println!("[OCRB] ORI Score: {}/100", ori);
+
+    if ori >= 80 {
+        serial_println!("[OCRB] GATE: PASS — Phase 13 TCP reliability verified");
     } else {
         serial_println!("[OCRB] GATE: FAIL — ORI below 80 threshold");
     }

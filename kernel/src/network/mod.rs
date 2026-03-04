@@ -17,8 +17,14 @@ pub mod socket;
 pub mod ip;
 pub mod udp;
 pub mod tcp;
+pub mod tcp_timer;
 pub mod loopback;
 pub mod ops;
+pub mod ethernet;
+pub mod arp;
+pub mod dns;
+pub mod http;
+pub mod nic_dispatch;
 
 use spin::Mutex;
 use crate::serial_println;

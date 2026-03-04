@@ -167,6 +167,21 @@ pub fn is_initialized() -> bool {
     APIC_INITIALIZED.load(Ordering::Relaxed)
 }
 
+/// Diagnostic: dump APIC timer registers.
+pub fn dump_timer_state() {
+    let base = APIC_BASE_VIRT.load(Ordering::Relaxed);
+    let lvt = apic_read(APIC_LVT_TIMER);
+    let init = apic_read(APIC_TIMER_INIT_COUNT);
+    let curr = apic_read(0x390); // Current count register
+    let div = apic_read(APIC_TIMER_DIV_CONFIG);
+    let spur = apic_read(APIC_SPURIOUS);
+    serial_println!("[APIC_DBG] base_virt=0x{:x}", base);
+    serial_println!("[APIC_DBG] LVT_TIMER=0x{:08x} (vec={}, masked={}, periodic={})",
+        lvt, lvt & 0xFF, (lvt >> 16) & 1, (lvt >> 17) & 1);
+    serial_println!("[APIC_DBG] INIT_COUNT=0x{:x}, CURRENT=0x{:x}, DIV=0x{:x}", init, curr, div);
+    serial_println!("[APIC_DBG] SPURIOUS=0x{:08x} (enabled={})", spur, (spur >> 8) & 1);
+}
+
 /// Get the APIC ID of this CPU.
 pub fn apic_id() -> u32 {
     apic_read(APIC_ID) >> 24

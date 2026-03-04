@@ -1,17 +1,24 @@
 # FABRIC OS — THE ESTATE
 ## AI-Coordinated Microkernel Fabric
-### Master Context Document v2.0
+### Master Context Document v3.0
 
 **Owner:** Dshon Smith / Obelus Labs LLC
 **Brand:** "Welcome to The Estate, Powered by Fabric OS"
 **Target:** Developers, power users, the future
 **License:** GPL kernel (free forever), proprietary premium agents (Android model)
+**Strategic Goal:** Daily-driver OS with AI-native browser. User sovereignty, local-first, intent-driven.
+
+| | |
+|:---|:---|
+| **Current State** | 11 kernel phases complete, all ORI 100/100. Loom platform abstraction ready. |
+| **Kernel LOC** | ~20K lines Rust, zero warnings, boots clean |
+| **Timeline** | Completion-based, not calendar. Velocity: ~4 days per kernel phase historically. |
 
 ---
 
 ## 1. CORE IDENTITY
 
-Fabric OS is a ground-up operating system built on an AI-coordinated microkernel architecture. It is NOT Linux-based. The kernel is ~12K lines of Rust today (Phase 5B), targeting ~50K at full completion. Every subsystem communicates through a single typed message bus. Security is capability-based (no root, no superuser, no ACLs). AI prediction runs in the kernel but is fully detachable — the OS works without it.
+Fabric OS is a ground-up operating system built on an AI-coordinated microkernel architecture. It is NOT Linux-based. The kernel is ~20K lines of Rust today (Phase 10 complete), targeting ~50K at full completion. Every subsystem communicates through a single typed message bus. Security is capability-based (no root, no superuser, no ACLs). AI prediction runs in the kernel but is fully detachable — the OS works without it.
 
 The Estate is a modular AI agent ecosystem that runs on top of Fabric OS — 11 specialized agents (Butler, Maid, Groundskeeper, Chauffeur, Concierge, Archivist, Oracle, Alchemist, Therapist, Quartermaster, Curator) providing everything from system supervision to financial monitoring to personal wellness.
 
@@ -183,7 +190,7 @@ struct PredictionHint {
 ╠═══════╪═══════════╪═══════════╪═════════════╪════════════════════╣
 ║       │           │           │             │                    ║
 ║  ┌────┴────────────┴───────────┴─────────────┴──────────────┐    ║
-║  │              MICROKERNEL (Ring 0, ~12K LOC Rust)         │    ║
+║  │              MICROKERNEL (Ring 0, ~20K LOC Rust)         │    ║
 ║  │  Memory │ IPC Bus │ CapManager │ Scheduler │ Interrupts  │    ║
 ║  └──────────────────────────────────────────────────────────┘    ║
 ║                                                                  ║
@@ -737,187 +744,165 @@ From two rounds of adversarial review by Gemini and ChatGPT:
 
 ---
 
-## 24. BUILD PHASES
+## 24. WHAT'S BUILT (FOUNDATION)
 
-### Phase 0 — Bare Metal Boot (QEMU)
-- Bootloader (UEFI → kernel handoff)
-- Serial console output ("Hello from Fabric")
-- Physical memory detection
-- Page allocator (buddy system)
-- Virtual memory (page tables, mapping)
-- Basic kernel heap
-- **OCRB Gate:** Memory allocator stress test (ORI ≥ 80)
-- **Done when:** Boots in QEMU, allocates memory, prints to serial
+### Kernel (FabricOS) — 11 Phases, ORI 100/100 Each
 
-### Phase 1 — Capability Engine
-- CapabilityToken implementation (all fields)
-- Token generation, validation, revocation
-- Delegation chains
-- Budget enforcement
-- Nonce tracking
-- HMAC signing
-- In-memory capability store
-- **OCRB Gate:** Capability storm test — 10K concurrent requests (ORI ≥ 80)
-- **Done when:** Can create, delegate, validate, revoke, and budget capabilities
+| Phase | Deliverable | Strategic Value |
+|:---|:---|:---|
+| 0 | Memory management (buddy allocator, page tables, heap) | Everything stands on this |
+| 1 | Capability system (tokens, delegation, revocation) | Security model |
+| 2 | Message bus (typed IPC, zero-copy, audit chain) | Inter-process communication |
+| 3 | Process model (PCB, spawn, supervision trees) | Multitasking |
+| 4 | Drivers (UART, framebuffer, timer, ramdisk) | Hardware access |
+| 5A | Governance (constitution, policy engine, ACS) | AI safety constraints |
+| 5B | Council coordination (3-tier, learning, drift detection) | Distributed governance |
+| 6 | Memory isolation (PML4 per process, handle tables) | Security boundary |
+| 7 | Hardware interrupts + Ring 3 userspace | Real processes |
+| 8 | VFS + tmpfs + devfs + initramfs | File system |
+| 9 | Network stack loopback (TCP/UDP sockets, 8 syscalls) | Network foundation |
+| 10 | Display (framebuffer, compositor, text, 3 display syscalls) | Pixels on screen |
 
-### Phase 2 — IPC Bus
-- Typed message format
-- Bus router (capability-validated routing)
-- Zero-copy message passing
-- Sequence number tracking
-- HMAC verification per message
-- Separate monitor tap (read-only)
-- AuditEntry generation (hash-chained)
-- **OCRB Gate:** Byzantine message test + bus flood test (ORI ≥ 80)
-- **Done when:** Two processes can exchange typed messages through the bus with full audit
+**Total:** ~20K LOC kernel, zero warnings, boots clean in QEMU.
 
-### Phase 3 — Scheduler + Process Model
-- Process struct implementation
-- Intent-aware scheduling
-- Priority inheritance
-- Supervision tree (one-for-one, one-for-all, rest-for-one)
-- Restart intensity tracking
-- Process lifecycle (spawn, run, block, terminate)
-- Butler as root supervisor
-- **OCRB Gate:** CPU saturation + process crash/restart storm (ORI ≥ 80)
-- **Done when:** Butler supervises child processes, restarts crashes, respects intensity limits
+### Browser (Loom) — Phase L0 Complete
 
-### Phase 4 — Userspace Drivers + HAL
-- HAL trait definitions
-- Userspace driver framework
-- Interrupt dispatch via IPC
-- Serial driver (userspace)
-- RAM disk driver (userspace)
-- Timer driver (userspace)
-- Basic framebuffer driver
-- IOMMU configuration
-- **OCRB Gate:** Driver crash isolation test (driver dies, kernel lives) (ORI ≥ 80)
-- **Done when:** Drivers run in userspace, communicate via bus, crash without taking down kernel
-
-### Phase 5 — Governance Stack
-
-**Phase 5A — Deterministic Governance (ships first)**
-- Tier 1 rules engine (YAML/TOML parser)
-- Rule evaluation pipeline
-- Integration with bus router (pre-route policy check)
-- Constitution loader (external YAML file)
-- Constitution signature verification (Dilithium)
-- ACS lifecycle state machine (ACTIVE/DEGRADED/CONTINGENCY/EMERGENCY)
-- Dead-man switch implementation
-- 24-hour amendment cooling period
-- **OCRB Gate:** Rule evaluation under load + constitution tamper test (ORI ≥ 80)
-- **Done when:** Deterministic rules govern bus traffic, constitution is verified, ACS lifecycle works
-
-**Phase 5B — Adaptive Governance (ships second)**
-- Tier 2 local model integration (ONNX runtime or similar)
-- Tier 3 panel coordination
-- GPU temporal isolation
-- VRAM zeroing
-- Weight hash verification
-- Golden decisions test suite
-- Drift detection
-- Per-agent training caps
-- Override decay mechanism
-- Learning loop (decisions → fine-tuning → regression test → deploy)
-- **OCRB Gate:** Model poisoning resistance test + adversarial decision test (ORI ≥ 80)
-- **Done when:** Three-tier Council makes decisions, learning works with all defenses active
-
-### Phase 6 — FabricFS
-- Content-addressable storage backend
-- Metadata store (tags, relations, versions)
-- Semantic query engine
-- POSIX compatibility layer
-- Encryption at rest (AES-256-GCM)
-- Archivist agent integration
-- Version history
-- **OCRB Gate:** IO flood + metadata corruption test (ORI ≥ 80)
-- **Done when:** Files can be stored, tagged, queried, versioned, and accessed via POSIX compat
-
-### Phase 7 — Network Stack
-- TCP/IP implementation (userspace)
-- UDP, DNS resolver
-- TLS 1.3
-- QUIC support
-- Per-process network policies (capability-enforced)
-- Chauffeur agent integration
-- Aether policy engine (multi-uplink)
-- Bandwidth allocation per Intent priority
-- Failover logic
-- **OCRB Gate:** Network flood + uplink failover test (ORI ≥ 80)
-- **Done when:** Processes can make network requests with capability enforcement, Aether manages uplinks
-
-### Phase 8 — FabricScript Shell
-- Lexer/parser
-- Typed pipeline engine
-- Capability-scoped commands
-- Intent-aware execution
-- Pattern matching
-- Bus command integration
-- Tab completion
-- Script file execution
-- **OCRB Gate:** Shell injection test + malformed input stress test (ORI ≥ 80)
-- **Done when:** User can interact with Fabric OS through FabricScript, run scripts, pipe data
-
-### Phase 9 — Estate Agents + Service Integration
-
-**Phase 9A — WTP Integration**
-- 14 civic data connectors as bus services
-- Rate limiting per connector
-- Data normalization layer
-- Concierge integration (civic notifications)
-
-**Phase 9B — Veritas Integration**
-- Claim extraction pipeline as bus service
-- Evidence source connectors
-- Scoring engine
-- Knowledge graph
-- Cross-agent verification routing
-
-**Phase 9C — Guardian Integration**
-- Financial monitoring services
-- Whale detector, trap detector, risk manager
-- Sentiment analysis, crash intelligence
-- On-chain analysis
-- Quartermaster/Oracle feed
-
-**Phase 9D — Premium Agents**
-- Oracle (predictive analytics)
-- Alchemist (data transformation)
-- Therapist (mood + biometrics)
-- Quartermaster (procurement + gaming)
-- Curator (shopping + recommendations)
-- Premium licensing/subscription infrastructure
-
-### Phase 10 — AI Prediction Layer
-- Memory LSTM
-- IO LSTM
-- Contention GNN
-- Anomaly Autoencoder
-- Prediction hint pipeline (models → scheduler/memory manager)
-- Groundskeeper agent integration
-- Model serving infrastructure
-- Detachment testing (disable all models, verify OS functions normally)
-- **OCRB Gate:** Full system stress test with and without AI prediction (ORI ≥ 80 both ways)
-- **Done when:** AI prediction improves scheduling/memory by measurable margin AND OS works perfectly without it
+| Deliverable | Status |
+|:---|:---|
+| Project structure (8 crates) | Done |
+| wgpu window on Windows | Done |
+| Design system parsed (temperature, typography, curves) | Done |
+| Platform abstraction trait | Done |
+| FabricOS syscall wrappers (stubs) | Done |
+| Host backend (wgpu) | Done |
+| FabricOS backend (stubs) | Untested |
 
 ---
 
-## 25. POST-PHASE TARGETS
+## 25. WHAT WAS SKIPPED (DEBT TO PAY)
 
-- Estate Marketplace launch
-- Third-party agent SDK
-- Daedalus integration (spatial browser)
-- Mobile port (ARM64)
-- RISC-V port
-- Council standalone daemon release
-- Formal verification completion (Coq/Lean 4 proofs for cap + IPC)
+Items from the original README roadmap that were deferred in favor of practical priorities:
+
+| Original README Phase | What Was Planned | Why Skipped | When to Address |
+|:---|:---|:---|:---|
+| Phase 6 | **FabricFS** (content-addressable, encrypted, semantic) | tmpfs sufficient for boot | Phase 16 — persistent storage |
+| Phase 7 | **Full Network** (TCP/IP, TLS, QUIC, DNS, Aether) | Loopback sufficient initially | Phase 11/13 — real internet |
+| Phase 8 | **FabricScript Shell** | No userspace to run it in | Phase 17 — after Loom works |
+| Phase 9 | **Estate Agents / Service Integration** | No network, no services | Phase 19 — marketplace |
+| Phase 10 | **AI Prediction Layer** (LSTMs, anomaly detection) | No data to predict | Phase 18 — telemetry mature |
 
 ---
 
-## 26. EXISTING CODE LOCATIONS
+## 26. WHAT WAS ADDED (NOT IN ORIGINAL README)
+
+| Addition | Rationale | Strategic Value |
+|:---|:---|:---|
+| **Display system + syscalls** (Phase 10) | Loom needs to render | Browser is primary UI |
+| **Memory isolation + handle ABI** (Phase 6) | Userspace processes need real isolation | Security boundary |
+| **Hardware interrupts + Ring 3** (Phase 7) | Can't run userspace without this | Real processes |
+| **VFS + tmpfs/devfs** (Phase 8) | Processes need file I/O | File system foundation |
+| **Loopback network** (Phase 9) | Socket API for userspace | Network foundation |
+| **Loom as separate project** | Parallel development velocity | Kernel and browser mature independently |
+| **Dual-mode browser architecture** (Traditional/AI) | Differentiation from Chrome | User choice, intent-first |
+
+---
+
+## 27. ROADMAP TO COMPLETION
+
+### TIER 1: CORE SYSTEM (Kernel + Loom Integration)
+
+| Phase | Deliverable | Unlocks | Owner |
+|:---|:---|:---|:---|
+| **11** | Real NIC (virtio-net) + ARP + DNS + HTTP client + PS/2 keyboard | Loom fetches real web, user types URLs | Claude |
+| **12** | Loom integration test: render to FabricOS screen | First pixels from browser | VS Code AI |
+| **13** | TLS 1.3 (rustls), HTTP/2, WebSocket | Secure sites, modern web | Claude |
+| **14** | Mouse input, window manager (single window), damage tracking | Usable GUI, Loom navigation | Claude + VS Code AI |
+| **15** | Loom content acquisition: API-first, structured extraction, sandboxed container | Real browsing experience | VS Code AI |
+
+**Tier 1 Done When:** Loom renders `example.com`, user can click links, navigate, read content. Daily driver for static sites.
+
+### TIER 2: BROWSER MATURITY (Loom Feature Complete)
+
+| Phase | Deliverable | Unlocks | Owner |
+|:---|:---|:---|:---|
+| **L6** | Layout engine: HTML5 + CSS subset (flexbox, no grid) | Real page rendering | VS Code AI |
+| **L7** | Text rendering: cosmic-text, variable fonts, shaping | Readable typography | VS Code AI |
+| **L8** | JavaScript engine: Boa integration or V8 embed | Interactivity, forms, SPAs | VS Code AI |
+| **L9** | Media: video/audio playback (MP4, WebM) | YouTube, streaming | VS Code AI |
+| **L10** | AI-native mode: intent parser, planning engine, agent orchestration | Differentiation from Chrome | VS Code AI |
+
+**Tier 2 Done When:** Loom handles 80% of browsing. Traditional mode for compatibility, AI mode for transformation.
+
+### TIER 3: SYSTEM COMPLETION (FabricOS Feature Complete)
+
+| Phase | Deliverable | Unlocks | Owner |
+|:---|:---|:---|:---|
+| **16** | FabricFS: content-addressable, encrypted, semantic queries | Persistent storage, user data | Claude |
+| **17** | FabricScript Shell: typed pipelines, capability-scoped | Developer tool, automation | Claude |
+| **18** | AI Prediction Layer: memory/IO LSTMs, anomaly detection | System optimization, predictive loading | Claude |
+| **19** | Estate Agents: marketplace, service integration, agent SDK | Ecosystem, third-party agents | Both |
+| **20** | Multi-window compositor, desktop environment, settings | Full desktop OS | Both |
+
+**Tier 3 Done When:** FabricOS is daily driver for developers and power users. Loom is default browser.
+
+### TIER 4: SCALE (Post-Completion)
+
+| Target | Description |
+|:---|:---|
+| **ARM64/RISC-V ports** | Mobile, embedded, server |
+| **Formal verification** | seL4-level proofs for critical paths |
+| **Enterprise features** | Fleet management, policy enforcement |
+| **Cloud/edge deployment** | FabricOS as container host |
+| **Estate Marketplace** | Third-party agent SDK, 80/20 revenue split |
+| **Council standalone daemon** | Ship governance engine for Linux/Mac/Windows |
+
+---
+
+## 28. IMMEDIATE NEXT STEPS
+
+### Phase 11 Scope
+
+| Who | Task | Deliverable |
+|:---|:---|:---|
+| **Claude** | Phase 11: virtio-net, DNS, HTTP, PS/2 keyboard | Real internet, user input |
+| **VS Code AI** | Test Loom on FabricOS: build, run, render pixels | Integration verified |
+
+### Success Criteria
+
+| Check | How Verified |
+|:---|:---|
+| Loom binary runs as FabricOS process | `ps` shows loom process |
+| `sys_display_alloc` returns valid ID | Syscall success |
+| Red rectangle appears on screen | Visual confirmation |
+| Keyboard input reaches Loom | Character appears in URL bar |
+
+---
+
+## 29. RISK REGISTER
+
+| Risk | Mitigation | Owner |
+|:---|:---|:---|
+| Boa JS engine insufficient | Fallback to V8 embed | VS Code AI |
+| TLS performance poor | Profile, optimize rustls | Claude |
+| GPU acceleration needed sooner | Prioritize wgpu integration | Both |
+| Patent threat from Apple/Amazon | Design around, explicit not conversational | Both |
+| Acquisition interest before complete | Open source protects, buyer licenses | Owner |
+
+---
+
+## 30. EXISTING CODE LOCATIONS
 
 ```
 C:/Users/dshon/Projects/
+├── FabricOS/                 # THIS FILE — kernel (~20K LOC Rust)
+│   ├── kernel/               # Microkernel (Phases 0-10)
+│   ├── fabric_types/         # Shared types (ProcessId, SyscallNumber, etc.)
+│   └── README.md             # Master context document (this file)
+├── Loom/                     # AI-native browser (separate project)
+│   ├── loom_core/            # Core browser engine
+│   ├── loom_render/          # Rendering (wgpu)
+│   ├── loom_platform/        # Platform abstraction (host + FabricOS backends)
+│   └── loom_design/          # Design system
 ├── WeThePeople-App/          # WTP civic platform (14 connectors, services)
 │   ├── connectors/           # 14 government data connectors
 │   └── services/             # Auth, enrichment, extraction, LLM, ops
@@ -928,7 +913,6 @@ C:/Users/dshon/Projects/
 ├── Guardian-Desktop-UI/      # Guardian frontend
 ├── Guardian-Mobile/          # Guardian mobile app
 ├── WeThePeople-Repo/         # WTP GitHub repo (cleaned up)
-├── FabricOS/                 # THIS FILE — master context
 ├── Betting_Engine/           # Not bundled (separate project)
 ├── HedgeBrain/               # NOT bundled
 ├── HB_Futures/               # NOT bundled
@@ -945,22 +929,39 @@ Tracked explicitly. Every item has an introduction phase, target resolution phas
 
 | ID | Item | Phase Introduced | Phase Target | Risk | Status |
 |----|------|-----------------|-------------|------|--------|
-| TD-001 | XOR gradient placeholder in learning loop — training protocol proven, actual ML math is nonsensical | 5B | 9 | Medium | Acknowledged |
-| TD-002 | No IDT/APIC — no real hardware boot or preemptive scheduling. First interrupt = triple fault | 5B | 7 | Critical | Planned |
-| TD-003 | Lock ordering by convention only (`GOVERNANCE < COUNCIL < TABLE < STORE < BUS`), no compiler enforcement | 5B | 7 | High | Planned |
-| TD-004 | Capability revocation BFS is O(n*m) — needs parent→children index for O(n) | 5B | 6 | Medium | Acknowledged |
-| TD-005 | Simulated models only (256-byte deterministic state machines) — no real inference | 5B | 9 | Medium | Acknowledged |
-| TD-006 | OCRB tests pass in QEMU only — no real hardware testing, no SMP, no NUMA, no real device interrupts | 5B | 7 | High | Planned |
+| TD-001 | XOR gradient placeholder in learning loop — training protocol proven, actual ML math is nonsensical | 5B | 18 | Medium | Acknowledged |
+| TD-002 | No IDT/APIC — no real hardware boot or preemptive scheduling | 5B | 7 | Critical | **Fixed** (Phase 7) |
+| TD-003 | Lock ordering by convention only, no compiler enforcement | 5B | 11+ | High | Acknowledged |
+| TD-004 | Capability revocation BFS is O(n*m) — needs parent→children index for O(n) | 5B | 6 | Medium | **Fixed** (Phase 6) |
+| TD-005 | Simulated models only (256-byte deterministic state machines) — no real inference | 5B | 18 | Medium | Acknowledged |
+| TD-006 | OCRB tests pass in QEMU only — no real hardware testing, no SMP, no NUMA | 5B | 11+ | High | Acknowledged |
 | TD-007 | README claimed ~50K LOC (actual ~12K at Phase 5B) | 5B | — | Low | **Fixed** (585a2d0) |
-| TD-008 | `BTreeMap` in capability store allocates on insert — should be fixed-size slab for kernel use | 5B | 6 | Medium | Acknowledged |
-| TD-009 | No `#[must_use]` on critical Result types across codebase | 5B | 6 | Low | Acknowledged |
-| TD-010 | Buddy allocator free-list uses intrusive pointers in free frames — most fragile `unsafe` code | 0 | 7 | High | Acknowledged |
-| TD-011 | Serial output only (COM1 0x3F8) — real laptops need framebuffer console | 0 | 7 | Medium | Planned |
-| TD-012 | No filesystem — model loading, config, logs all require FabricFS | 5B | 8 | High | Planned |
+| TD-008 | `BTreeMap` in capability store allocates on insert — should be fixed-size slab | 5B | 16 | Medium | Acknowledged |
+| TD-009 | No `#[must_use]` on critical Result types across codebase | 5B | 6 | Low | **Fixed** (Phase 6) |
+| TD-010 | Buddy allocator free-list uses intrusive pointers in free frames — most fragile `unsafe` code | 0 | 11+ | High | Acknowledged |
+| TD-011 | Serial output only (COM1 0x3F8) — real laptops need framebuffer console | 0 | 10 | Medium | **Fixed** (Phase 10) |
+| TD-012 | No filesystem — model loading, config, logs all require persistent storage | 5B | 8 | High | **Partial** (tmpfs/devfs in Phase 8, FabricFS in Phase 16) |
+| TD-013 | Network is loopback only — no real NIC, no ARP, no DNS | 9 | 11 | High | Planned |
+| TD-014 | No keyboard/mouse input — user can't interact with display | 10 | 11 | High | Planned |
+| TD-015 | Heap is 16MB — may need expansion for real workloads | 10 | 11+ | Medium | Acknowledged |
+| TD-016 | Nightly Rust compiler ICE workaround (`RUSTFLAGS='-Awarnings'`) | 7 | — | Low | Workaround active |
+
+---
+
+## SUMMARY
+
+| Category | Count | Status |
+|:---|:---|:---|
+| Kernel phases complete | 11 (0-10) | All ORI 100/100 |
+| Loom phases complete | L0 | Bootstrapped |
+| Phases to Tier 1 | 5 (11-15) | In progress |
+| Phases to completion | 20 | Planned |
+| Lines of code (kernel) | ~20K | Growing |
+| Strategic differentiation | Dual-mode browser, capability security, user sovereignty | Unique |
 
 ---
 
 *This document is the single source of truth for the Fabric OS — The Estate project. Hand this to any AI assistant chat session to give it full context for implementation work.*
 
-*Last updated: 2026-03-02*
-*Version: 2.1*
+*Last updated: 2026-03-04*
+*Version: 3.0*

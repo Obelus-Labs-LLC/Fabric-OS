@@ -90,6 +90,18 @@ pub enum SyscallNumber {
     Recv     = 16,
     /// Shutdown a socket. RDI = fd. Returns 0.
     Shutdown = 17,
+    /// Allocate a display surface. RDI = width, RSI = height. Returns surface_id or u64::MAX.
+    DisplayAllocSurface = 18,
+    /// Blit pixel data to a surface. RDI = surface_id, RSI = buf_ptr, RDX = len. Returns 0 or error.
+    DisplayBlit = 19,
+    /// Present a surface to the screen. RDI = surface_id. Returns 0 or error.
+    DisplayPresent = 20,
+    /// Read a key from the keyboard buffer. Returns ASCII byte or 0 if empty.
+    KbRead = 21,
+    /// Resolve a hostname via DNS. RDI = name_ptr, RSI = name_len. Returns IPv4 as u32 or u64::MAX.
+    DnsResolve = 22,
+    /// Send raw data to a network address. RDI = buf_ptr, RSI = len, RDX = dest_ip, R10 = dest_port.
+    SendTo = 23,
 }
 
 impl SyscallNumber {
@@ -114,6 +126,12 @@ impl SyscallNumber {
             15 => Some(Self::Send),
             16 => Some(Self::Recv),
             17 => Some(Self::Shutdown),
+            18 => Some(Self::DisplayAllocSurface),
+            19 => Some(Self::DisplayBlit),
+            20 => Some(Self::DisplayPresent),
+            21 => Some(Self::KbRead),
+            22 => Some(Self::DnsResolve),
+            23 => Some(Self::SendTo),
             _ => None,
         }
     }

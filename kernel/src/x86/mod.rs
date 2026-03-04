@@ -11,6 +11,7 @@ pub mod idt;
 pub mod apic;
 pub mod syscall;
 pub mod context;
+pub mod ioapic;
 
 use crate::serial_println;
 

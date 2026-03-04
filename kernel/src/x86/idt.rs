@@ -217,6 +217,16 @@ extern "C" fn interrupt_dispatch(frame: *mut SavedContext) {
         // Timer interrupt (vector 32)
         32 => timer_handler(frame),
 
+        // Keyboard interrupt (vector 33, IRQ1)
+        33 => {
+            crate::keyboard::keyboard_irq_handler();
+        },
+
+        // Virtio-net interrupt (vector 43, IRQ11)
+        43 => {
+            crate::virtio::net::virtio_net_irq_handler();
+        },
+
         // Spurious interrupt (vector 255)
         255 => {
             // Spurious — do NOT send EOI
@@ -279,7 +289,7 @@ fn page_fault_handler(frame: &SavedContext) {
 
 fn timer_handler(frame: &mut SavedContext) {
     // Increment global tick counter
-    TICK_COUNT.fetch_add(1, Ordering::Relaxed);
+    let tick = TICK_COUNT.fetch_add(1, Ordering::Relaxed);
 
     // Try to acquire scheduler and table locks.
     // If either is held (e.g., spawn() in progress), skip context switch this tick.

@@ -246,12 +246,7 @@ fn handle_syn(
     );
 
     if pkt_len > 0 {
-        // Drop SOCKETS before locking LOOPBACK (lock ordering)
-        // Note: We can't drop sockets here since we have a &mut reference.
-        // Instead, we'll buffer the packet and let the caller enqueue it.
-        // For simplicity in loopback, we directly enqueue.
-        let mut lo = super::LOOPBACK.lock();
-        lo.enqueue(&pkt_buf[..pkt_len]);
+        super::nic_dispatch::transmit_ip(&pkt_buf[..pkt_len]);
     }
 }
 
@@ -279,6 +274,10 @@ fn tcp_state_machine(
                 sock.send_ack = tcp_hdr.seq_num.wrapping_add(1);
                 sock.send_window = tcp_hdr.window;
                 sock.state = SocketState::Established;
+                // Clear SYN from retransmit queue
+                if let Some(ref mut rq) = sock.retransmit {
+                    rq.ack_received(tcp_hdr.ack_num, crate::x86::idt::tick_count());
+                }
 
                 // Send ACK
                 let local = sock.local_addr;
@@ -291,8 +290,7 @@ fn tcp_state_machine(
                     local, remote, seq, ack, ACK, 4096, &[], &mut pkt_buf,
                 );
                 if pkt_len > 0 {
-                    let mut lo = super::LOOPBACK.lock();
-                    lo.enqueue(&pkt_buf[..pkt_len]);
+                    super::nic_dispatch::transmit_ip(&pkt_buf[..pkt_len]);
                 }
             }
         }
@@ -302,6 +300,10 @@ fn tcp_state_machine(
             if flags & ACK != 0 {
                 sock.send_seq = sock.send_seq.wrapping_add(1); // SYN consumed one seq
                 sock.state = SocketState::Established;
+                // Clear SYN+ACK from retransmit queue
+                if let Some(ref mut rq) = sock.retransmit {
+                    rq.ack_received(tcp_hdr.ack_num, crate::x86::idt::tick_count());
+                }
             }
         }
 
@@ -322,8 +324,7 @@ fn tcp_state_machine(
                     local, remote_addr, seq, ack, ACK, 4096, &[], &mut pkt_buf,
                 );
                 if pkt_len > 0 {
-                    let mut lo = super::LOOPBACK.lock();
-                    lo.enqueue(&pkt_buf[..pkt_len]);
+                    super::nic_dispatch::transmit_ip(&pkt_buf[..pkt_len]);
                 }
             } else if flags & ACK != 0 && !payload.is_empty() {
                 // Data segment
@@ -341,13 +342,15 @@ fn tcp_state_machine(
                     local, remote_addr, seq, ack, ACK, 4096, &[], &mut pkt_buf,
                 );
                 if pkt_len > 0 {
-                    let mut lo = super::LOOPBACK.lock();
-                    lo.enqueue(&pkt_buf[..pkt_len]);
+                    super::nic_dispatch::transmit_ip(&pkt_buf[..pkt_len]);
                 }
             }
-            // Pure ACK with no data — update send_ack
+            // Pure ACK with no data — update send_ack and clear retransmit
             if flags & ACK != 0 && payload.is_empty() && flags & FIN == 0 {
                 sock.send_ack = tcp_hdr.ack_num;
+                if let Some(ref mut rq) = sock.retransmit {
+                    rq.ack_received(tcp_hdr.ack_num, crate::x86::idt::tick_count());
+                }
             }
         }
 
@@ -356,6 +359,9 @@ fn tcp_state_machine(
                 // Simultaneous close: FIN+ACK
                 sock.recv_seq = tcp_hdr.seq_num.wrapping_add(1);
                 sock.state = SocketState::TimeWait;
+                if let Some(ref mut rq) = sock.retransmit {
+                    rq.ack_received(tcp_hdr.ack_num, crate::x86::idt::tick_count());
+                }
 
                 let local = sock.local_addr;
                 let remote_addr = sock.remote_addr;
@@ -367,11 +373,13 @@ fn tcp_state_machine(
                     local, remote_addr, seq, ack, ACK, 4096, &[], &mut pkt_buf,
                 );
                 if pkt_len > 0 {
-                    let mut lo = super::LOOPBACK.lock();
-                    lo.enqueue(&pkt_buf[..pkt_len]);
+                    super::nic_dispatch::transmit_ip(&pkt_buf[..pkt_len]);
                 }
             } else if flags & ACK != 0 {
                 sock.state = SocketState::FinWait2;
+                if let Some(ref mut rq) = sock.retransmit {
+                    rq.ack_received(tcp_hdr.ack_num, crate::x86::idt::tick_count());
+                }
             } else if flags & FIN != 0 {
                 sock.recv_seq = tcp_hdr.seq_num.wrapping_add(1);
                 sock.state = SocketState::Closing;
@@ -386,8 +394,7 @@ fn tcp_state_machine(
                     local, remote_addr, seq, ack, ACK, 4096, &[], &mut pkt_buf,
                 );
                 if pkt_len > 0 {
-                    let mut lo = super::LOOPBACK.lock();
-                    lo.enqueue(&pkt_buf[..pkt_len]);
+                    super::nic_dispatch::transmit_ip(&pkt_buf[..pkt_len]);
                 }
             }
         }
@@ -407,8 +414,7 @@ fn tcp_state_machine(
                     local, remote_addr, seq, ack, ACK, 4096, &[], &mut pkt_buf,
                 );
                 if pkt_len > 0 {
-                    let mut lo = super::LOOPBACK.lock();
-                    lo.enqueue(&pkt_buf[..pkt_len]);
+                    super::nic_dispatch::transmit_ip(&pkt_buf[..pkt_len]);
                 }
             }
         }
@@ -421,12 +427,19 @@ fn tcp_state_machine(
             if flags & ACK != 0 {
                 sock.state = SocketState::Closed;
                 sock.active = false;
+                if let Some(ref mut rq) = sock.retransmit {
+                    rq.ack_received(tcp_hdr.ack_num, crate::x86::idt::tick_count());
+                    rq.clear();
+                }
             }
         }
 
         SocketState::Closing => {
             if flags & ACK != 0 {
                 sock.state = SocketState::TimeWait;
+                if let Some(ref mut rq) = sock.retransmit {
+                    rq.ack_received(tcp_hdr.ack_num, crate::x86::idt::tick_count());
+                }
             }
         }
 
@@ -434,6 +447,9 @@ fn tcp_state_machine(
             // In real TCP, we'd wait 2*MSL. On loopback, transition to Closed.
             sock.state = SocketState::Closed;
             sock.active = false;
+            if let Some(ref mut rq) = sock.retransmit {
+                rq.clear();
+            }
         }
 
         _ => {} // Closed, Bound, Listen — shouldn't receive data segments

@@ -5,7 +5,7 @@ OVMF_CODE := /usr/share/OVMF/OVMF_CODE_4M.fd
 OVMF_VARS := /usr/share/OVMF/OVMF_VARS_4M.fd
 OVMF_VARS_COPY := ovmf_vars.fd
 
-.PHONY: all build iso run run-debug clean ocrb
+.PHONY: all build iso run run-gui run-debug clean ocrb
 
 all: run
 
@@ -43,7 +43,23 @@ run: iso
 		-m 256M \
 		-no-reboot \
 		-no-shutdown \
+		-device virtio-net-pci,netdev=net0 \
+		-netdev user,id=net0 \
 		-display none
+
+run-gui: iso
+	cp -n $(OVMF_VARS) $(OVMF_VARS_COPY) 2>/dev/null || true
+	qemu-system-x86_64 \
+		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
+		-drive if=pflash,format=raw,file=$(OVMF_VARS_COPY) \
+		-cdrom $(ISO) \
+		-serial stdio \
+		-m 256M \
+		-no-reboot \
+		-no-shutdown \
+		-device virtio-net-pci,netdev=net0 \
+		-netdev user,id=net0 \
+		-display gtk
 
 run-debug: iso
 	cp -n $(OVMF_VARS) $(OVMF_VARS_COPY) 2>/dev/null || true
@@ -55,6 +71,8 @@ run-debug: iso
 		-m 256M \
 		-no-reboot \
 		-no-shutdown \
+		-device virtio-net-pci,netdev=net0 \
+		-netdev user,id=net0 \
 		-s -S
 
 ocrb: iso
@@ -67,6 +85,8 @@ ocrb: iso
 		-m 256M \
 		-no-reboot \
 		-no-shutdown \
+		-device virtio-net-pci,netdev=net0 \
+		-netdev user,id=net0 \
 		-display none
 
 clean:

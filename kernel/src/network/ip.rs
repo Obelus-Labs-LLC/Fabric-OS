@@ -38,9 +38,9 @@ impl Ipv4Header {
         let mut hdr = Self {
             version_ihl: 0x45, // IPv4, IHL=5 (20 bytes)
             tos: 0,
-            total_length: total_length.to_be(),
+            total_length,
             identification: 0,
-            flags_fragment: 0x4000u16.to_be(), // DF flag
+            flags_fragment: 0x4000, // DF flag
             ttl: 64,
             protocol,
             checksum: 0,
@@ -74,9 +74,7 @@ impl Ipv4Header {
         [
             self.version_ihl,
             self.tos,
-            // total_length is already in big-endian
-            (self.total_length >> 8) as u8,
-            self.total_length as u8,
+            tl[0], tl[1],
             id[0], id[1],
             ff[0], ff[1],
             self.ttl,

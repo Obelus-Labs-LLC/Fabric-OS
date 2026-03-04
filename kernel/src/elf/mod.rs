@@ -18,6 +18,7 @@ const ELF_MAGIC: [u8; 4] = [0x7F, b'E', b'L', b'F'];
 const ELFCLASS64: u8 = 2;
 const ELFDATA2LSB: u8 = 1;
 const ET_EXEC: u16 = 2;
+const ET_DYN: u16 = 3;
 const EM_X86_64: u16 = 0x3E;
 const PT_LOAD: u32 = 1;
 const PF_X: u32 = 1;
@@ -89,7 +90,7 @@ pub fn parse_header(data: &[u8]) -> Result<&Elf64Header, ElfError> {
     if header.e_ident[5] != ELFDATA2LSB {
         return Err(ElfError::NotLittleEndian);
     }
-    if header.e_type != ET_EXEC {
+    if header.e_type != ET_EXEC && header.e_type != ET_DYN {
         return Err(ElfError::NotExecutable);
     }
     if header.e_machine != EM_X86_64 {
@@ -119,55 +120,86 @@ pub fn program_headers<'a>(data: &'a [u8], header: &Elf64Header) -> Result<&'a [
 
 /// Load an ELF64 binary into a per-process address space.
 ///
-/// For each PT_LOAD segment: allocates frames, maps user pages, copies data.
+/// Two-pass approach to handle overlapping segments correctly:
+///  Pass 1: Compute per-page flags (union of all segment flags sharing a page)
+///  Pass 2: Allocate, map with merged flags, and copy segment data
 /// Returns the entry point virtual address.
 pub fn load_elf(
     data: &[u8],
     address_space: &mut AddressSpace,
 ) -> Result<u64, ElfError> {
+    use alloc::collections::BTreeMap;
+
     let header = parse_header(data)?;
     let phdrs = program_headers(data, header)?;
 
+    // Pass 1: Compute merged flags per page.
+    // For each page, track whether any segment needs WRITABLE or EXECUTE.
+    // page_va -> (needs_write, needs_exec)
+    let mut page_perms: BTreeMap<u64, (bool, bool)> = BTreeMap::new();
+
     for phdr in phdrs {
-        if phdr.p_type != PT_LOAD {
+        if phdr.p_type != PT_LOAD || phdr.p_memsz == 0 {
             continue;
         }
-        if phdr.p_memsz == 0 {
+        let vaddr_start = phdr.p_vaddr & !0xFFF;
+        let vaddr_end = (phdr.p_vaddr + phdr.p_memsz + 0xFFF) & !0xFFF;
+        let needs_w = phdr.p_flags & PF_W != 0;
+        let needs_x = phdr.p_flags & PF_X != 0;
+
+        let mut va = vaddr_start;
+        while va < vaddr_end {
+            let entry = page_perms.entry(va).or_insert((false, false));
+            if needs_w { entry.0 = true; }
+            if needs_x { entry.1 = true; }
+            va += PAGE_SIZE as u64;
+        }
+    }
+
+    // Pass 2: Allocate, map, and copy.
+    let mut mapped_pages: BTreeMap<u64, crate::memory::PhysAddr> = BTreeMap::new();
+
+    for phdr in phdrs {
+        if phdr.p_type != PT_LOAD || phdr.p_memsz == 0 {
             continue;
         }
 
-        // Calculate page-aligned range
         let vaddr_start = phdr.p_vaddr & !0xFFF;
         let vaddr_end = (phdr.p_vaddr + phdr.p_memsz + 0xFFF) & !0xFFF;
 
-        // Build flags from ELF segment flags
-        let mut flags = PageTableFlags::empty();
-        if phdr.p_flags & PF_W != 0 {
-            flags = flags | PageTableFlags::WRITABLE;
-        }
-        if phdr.p_flags & PF_X == 0 {
-            flags = flags | PageTableFlags::NO_EXECUTE;
-        }
-
-        // Map each page
         let mut page_va = vaddr_start;
         while page_va < vaddr_end {
-            let phys_frame = frame::allocate_frame()
-                .ok_or(ElfError::OutOfMemory)?;
+            let frame_virt = if let Some(&existing_frame) = mapped_pages.get(&page_va) {
+                // Page already mapped by a previous segment — reuse it
+                existing_frame.to_virt().as_u64() as *mut u8
+            } else {
+                // Build merged flags for this page
+                let (w, x) = page_perms.get(&page_va).copied().unwrap_or((false, false));
+                let mut flags = PageTableFlags::empty();
+                if w { flags = flags | PageTableFlags::WRITABLE; }
+                if !x { flags = flags | PageTableFlags::NO_EXECUTE; }
 
-            // Zero the frame
-            let frame_virt = phys_frame.to_virt().as_u64() as *mut u8;
-            unsafe { core::ptr::write_bytes(frame_virt, 0, PAGE_SIZE); }
+                let phys_frame = frame::allocate_frame()
+                    .ok_or(ElfError::OutOfMemory)?;
 
-            // Calculate overlap between this page and the file data
+                let fv = phys_frame.to_virt().as_u64() as *mut u8;
+                unsafe { core::ptr::write_bytes(fv, 0, PAGE_SIZE); }
+
+                address_space.map_user_page(
+                    VirtAddr::new(page_va),
+                    phys_frame,
+                    flags,
+                ).map_err(|_| ElfError::MapFailed)?;
+
+                mapped_pages.insert(page_va, phys_frame);
+                fv
+            };
+
+            // Copy file data for this segment into the page
             let seg_file_start = phdr.p_offset;
-            let _seg_file_end = phdr.p_offset + phdr.p_filesz;
             let seg_vaddr_start = phdr.p_vaddr;
-
-            // Virtual range of this page
             let page_end = page_va + PAGE_SIZE as u64;
 
-            // Intersection of [page_va, page_end) with [seg_vaddr_start, seg_vaddr_start + filesz)
             let copy_vstart = page_va.max(seg_vaddr_start);
             let copy_vend = page_end.min(seg_vaddr_start + phdr.p_filesz);
 
@@ -186,12 +218,6 @@ pub fn load_elf(
                     }
                 }
             }
-
-            address_space.map_user_page(
-                VirtAddr::new(page_va),
-                phys_frame,
-                flags,
-            ).map_err(|_| ElfError::MapFailed)?;
 
             page_va += PAGE_SIZE as u64;
         }

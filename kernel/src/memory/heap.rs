@@ -8,8 +8,9 @@ use crate::serial_println;
 
 /// Heap starts after the kernel's mapped region
 pub const HEAP_START: u64 = 0xFFFF_FFFF_8040_0000;
-/// 4 MiB heap (Phase 1: 10K tokens × ~120B + 3 BTreeMaps + OCRB overhead)
-pub const HEAP_SIZE: usize = 4 * 1024 * 1024;
+/// 16 MiB heap — accommodates capabilities, buses, processes, VFS, network,
+/// and display back buffer (up to ~4 MiB for 1280x800@32bpp).
+pub const HEAP_SIZE: usize = 16 * 1024 * 1024;
 
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();

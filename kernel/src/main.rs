@@ -8,20 +8,25 @@ mod bus;
 mod butler_state;
 mod capability;
 mod council;
+mod display;
 mod elf;
 mod governance;
 mod hal;
 mod handle;
+mod io;
+mod keyboard;
 mod memory;
 mod network;
 mod ocrb;
 mod panic;
+mod pci;
 mod process;
 mod serial;
 mod vfs;
+mod virtio;
 mod x86;
 use limine::BaseRevision;
-use limine::request::{MemoryMapRequest, HhdmRequest, ModuleRequest};
+use limine::request::{MemoryMapRequest, HhdmRequest, ModuleRequest, FramebufferRequest};
 
 #[used]
 static BASE_REVISION: BaseRevision = BaseRevision::new();
@@ -35,12 +40,15 @@ static HHDM: HhdmRequest = HhdmRequest::new();
 #[used]
 static MODULES: ModuleRequest = ModuleRequest::new();
 
+#[used]
+static FRAMEBUFFER: FramebufferRequest = FramebufferRequest::new();
+
 #[no_mangle]
 extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v0.5.0 — Phase 9 (Network Stack)");
+    serial_println!("[FABRIC]   Fabric OS v0.9.0 — Phase 13 (TCP Reliability)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -337,9 +345,218 @@ extern "C" fn _start() -> ! {
     serial_println!();
     ocrb::run_phase9_gate();
 
+    // Phase 10: Display System (Framebuffer + Compositor)
     serial_println!();
-    serial_println!("[FABRIC] Phase 9 complete. Network stack verified.");
-    serial_println!("[FABRIC] Halting.");
+    serial_println!("[PHASE10] ============================================");
+    serial_println!("[PHASE10]   Phase 10 — Display System");
+    serial_println!("[PHASE10] ============================================");
+
+    // Initialize display from Limine framebuffer
+    if let Some(fb_response) = FRAMEBUFFER.get_response() {
+        if let Some(fb) = fb_response.framebuffers().next() {
+            let info = display::FramebufferInfo::new(
+                fb.addr(),
+                fb.width(),
+                fb.height(),
+                fb.pitch(),
+                fb.bpp(),
+                fb.red_mask_shift(),
+                fb.green_mask_shift(),
+                fb.blue_mask_shift(),
+            );
+            display::init(info);
+        } else {
+            serial_println!("[PHASE10] WARNING: No framebuffers in response");
+        }
+    } else {
+        serial_println!("[PHASE10] WARNING: No framebuffer response from bootloader");
+    }
+
+    phase10_self_test();
+
+    // OCRB Phase 10 Gate
+    serial_println!();
+    ocrb::run_phase10_gate();
+
+    serial_println!();
+    serial_println!("[FABRIC] Phase 10 complete. Display system verified.");
+
+    // Phase 11: NIC + Keyboard
+    serial_println!();
+    serial_println!("[PHASE11] ============================================");
+    serial_println!("[PHASE11]   Phase 11 — NIC + Keyboard");
+    serial_println!("[PHASE11] ============================================");
+
+    // Initialize IO APIC (route IRQ1->vec33 keyboard, IRQ11->vec43 virtio-net)
+    x86::ioapic::init();
+
+    // Initialize PS/2 keyboard
+    keyboard::init();
+
+    // PCI bus scan
+    let pci_devices = pci::init();
+
+    // Initialize virtio-net if found
+    for dev in &pci_devices {
+        if dev.is_virtio_net() {
+            serial_println!("[PHASE11] Found virtio-net at {:02x}:{:02x}.{}", dev.bus, dev.device, dev.function);
+            if let Some(nic) = virtio::net::VirtioNet::init(dev) {
+                *virtio::net::NIC.lock() = Some(nic);
+                serial_println!("[PHASE11] virtio-net initialized");
+            } else {
+                serial_println!("[PHASE11] WARNING: virtio-net init failed");
+            }
+            break;
+        }
+    }
+
+    // Send ARP request for gateway (10.0.2.2)
+    if virtio::net::NIC.lock().is_some() {
+        network::arp::arp_request([10, 0, 2, 2]);
+    }
+
+    serial_println!("[PHASE11] Phase 11 initialization complete");
+
+    // OCRB Phase 11 Gate
+    serial_println!();
+    ocrb::run_phase11_gate();
+
+    // Phase 12: Wire NIC to Network Stack
+    serial_println!();
+    serial_println!("[PHASE12] ============================================");
+    serial_println!("[PHASE12]   Phase 12 — NIC Integration");
+    serial_println!("[PHASE12] ============================================");
+
+    // Blocking ARP resolve for gateway (fills ARP table)
+    if virtio::net::NIC.lock().is_some() {
+        serial_println!("[PHASE12] Resolving gateway MAC via ARP...");
+        match network::arp::arp_resolve([10, 0, 2, 2]) {
+            Some(mac) => {
+                serial_println!(
+                    "[PHASE12] Gateway 10.0.2.2 -> {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+                );
+            }
+            None => {
+                serial_println!("[PHASE12] WARNING: ARP resolve for gateway timed out");
+            }
+        }
+
+        // DNS resolve test
+        serial_println!("[PHASE12] Resolving example.com via DNS...");
+        match network::dns::dns_resolve("example.com") {
+            Some(ip) => {
+                serial_println!(
+                    "[PHASE12] example.com -> {}.{}.{}.{}",
+                    ip[0], ip[1], ip[2], ip[3]
+                );
+            }
+            None => {
+                serial_println!("[PHASE12] WARNING: DNS resolve for example.com failed");
+            }
+        }
+    } else {
+        serial_println!("[PHASE12] No NIC available, skipping ARP/DNS");
+    }
+
+    serial_println!("[PHASE12] Phase 12 initialization complete");
+
+    // OCRB Phase 12 Gate
+    serial_println!();
+    ocrb::run_phase12_gate();
+
+    // Phase 13: TCP Reliability & Async I/O
+    serial_println!();
+    serial_println!("[PHASE13] ============================================");
+    serial_println!("[PHASE13]   Phase 13 — TCP Reliability & Async I/O");
+    serial_println!("[PHASE13] ============================================");
+    serial_println!("[PHASE13] TCP retransmit queue: per-socket, Jacobson/Karels RTO");
+    serial_println!("[PHASE13] Karn's algorithm: skip RTT on retransmitted segments");
+    serial_println!("[PHASE13] poll() syscall: SYS_POLL=24, POLLIN/POLLOUT/POLLHUP");
+    serial_println!("[PHASE13] DNS cache: 32-entry LRU, TTL-based expiry");
+    serial_println!("[PHASE13] DNS retry: 3 attempts, pseudo-random txn IDs");
+    serial_println!("[PHASE13] Phase 13 initialization complete");
+
+    // OCRB Phase 13 Gate
+    serial_println!();
+    ocrb::run_phase13_gate();
+
+    // Re-initialize process table for production use (OCRB tests left stale state)
+    process::TABLE.lock().clear();
+    process::SCHEDULER.lock().clear();
+    bus::BUS.lock().clear();
+    capability::STORE.lock().clear();
+    process::init();
+
+    // Launch Loom from initramfs
+    serial_println!();
+    serial_println!("[LOOM] Searching for Loom binary in initramfs...");
+    if let Some(module_response) = MODULES.get_response() {
+        let modules = module_response.modules();
+        if !modules.is_empty() {
+            let module = &modules[0];
+            let base = module.addr() as *const u8;
+            let size = module.size() as usize;
+            let archive = unsafe { core::slice::from_raw_parts(base, size) };
+
+            // Parse CPIO to find bin/loom
+            match vfs::cpio::parse_cpio(archive) {
+                Ok(entries) => {
+                    let mut found = false;
+                    for entry in &entries {
+                        let name = entry.name;
+                        // Match "bin/loom" or "./bin/loom"
+                        let clean = if name.starts_with(b"./") { &name[2..] } else { name };
+                        if clean == b"bin/loom" && !entry.is_directory {
+                            serial_println!("[LOOM] Found bin/loom ({} bytes)", entry.data.len());
+                            found = true;
+                            match process::spawn_elf(
+                                fabric_types::ProcessId::BUTLER,
+                                entry.data,
+                                "loom",
+                            ) {
+                                Ok(pid) => {
+                                    serial_println!("[LOOM] Spawned Loom as pid:{}", pid.0);
+                                }
+                                Err(e) => {
+                                    serial_println!("[LOOM] Failed to spawn: {:?}", e);
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    if !found {
+                        serial_println!("[LOOM] bin/loom not found in initramfs");
+                    }
+                }
+                Err(e) => {
+                    serial_println!("[LOOM] Failed to parse initramfs: {:?}", e);
+                }
+            }
+        } else {
+            serial_println!("[LOOM] No modules loaded");
+        }
+    } else {
+        serial_println!("[LOOM] No module response from bootloader");
+    }
+
+    // Re-initialize APIC timer for Loom scheduling
+    x86::apic::send_eoi();
+    x86::apic::start_timer(0x20000);
+
+    // Enable interrupts and trigger timer to kickstart scheduling
+    unsafe { core::arch::asm!("sti"); }
+
+    // Brief spin to let APIC timer fire naturally
+    for _ in 0..500_000 {
+        core::hint::spin_loop();
+    }
+
+    // Fallback: software INT 32 to force schedule if timer hasn't fired
+    unsafe { core::arch::asm!("int 32"); }
+
+    serial_println!("[FABRIC] Entering idle loop (tick={}).",
+        x86::idt::tick_count());
 
     halt();
 }
@@ -801,6 +1018,48 @@ fn phase9_self_test() {
     serial_println!("[PHASE9] Self-test: socket table accessible — OK");
 
     serial_println!("[PHASE9] All Phase 9 self-tests passed");
+}
+
+fn phase10_self_test() {
+    // Test 1: Display state initialized
+    {
+        let disp = display::DISPLAY.lock();
+        assert!(disp.is_some(), "Display should be initialized");
+    }
+    serial_println!("[PHASE10] Self-test: display initialized — OK");
+
+    // Test 2: Framebuffer dimensions valid
+    {
+        let disp = display::DISPLAY.lock();
+        if let Some(ref ds) = *disp {
+            assert!(ds.fb.width > 0, "Framebuffer width should be > 0");
+            assert!(ds.fb.height > 0, "Framebuffer height should be > 0");
+            assert!(ds.fb.bpp >= 24, "Framebuffer bpp should be >= 24");
+        }
+    }
+    serial_println!("[PHASE10] Self-test: framebuffer valid — OK");
+
+    // Test 3: Surface allocated
+    {
+        let disp = display::DISPLAY.lock();
+        if let Some(ref ds) = *disp {
+            assert!(ds.surface.width > 0, "Surface width should be > 0");
+            assert!(ds.surface.buffer.len() > 0, "Surface buffer should be allocated");
+        }
+    }
+    serial_println!("[PHASE10] Self-test: surface allocated — OK");
+
+    // Test 4: Color encoding
+    {
+        let disp = display::DISPLAY.lock();
+        if let Some(ref ds) = *disp {
+            let packed = display::Color::WHITE.to_packed(&ds.fb);
+            assert!(packed != 0, "White should not be zero");
+        }
+    }
+    serial_println!("[PHASE10] Self-test: color encoding — OK");
+
+    serial_println!("[PHASE10] All Phase 10 self-tests passed");
 }
 
 fn halt() -> ! {

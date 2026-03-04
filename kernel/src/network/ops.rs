@@ -12,6 +12,7 @@ use super::ip::Ipv4Header;
 use super::tcp::{self, TcpHeader, SYN, ACK, FIN};
 use super::udp;
 use super::loopback::LOOPBACK_MTU;
+use super::nic_dispatch;
 use super::SOCKETS;
 use super::LOOPBACK;
 
@@ -84,11 +85,17 @@ pub fn socket_connect(id: SocketId, remote: SocketAddr) -> Result<(), SocketErro
         };
         // Re-borrow sock after immutable borrow of table
         let sock = table.get_mut(id).ok_or(SocketError::NotFound)?;
+        // Use GUEST_IP for NIC connections, LOOPBACK for loopback
+        let bind_addr = if nic_dispatch::is_loopback(&remote.addr.0) {
+            Ipv4Addr::LOOPBACK
+        } else {
+            Ipv4Addr(nic_dispatch::GUEST_IP)
+        };
         if needs_port {
-            sock.local_addr = SocketAddr::new(Ipv4Addr::LOOPBACK, ephemeral);
+            sock.local_addr = SocketAddr::new(bind_addr, ephemeral);
         }
         if needs_addr {
-            sock.local_addr.addr = Ipv4Addr::LOOPBACK;
+            sock.local_addr.addr = bind_addr;
         }
 
         sock.remote_addr = remote;
@@ -108,28 +115,38 @@ pub fn socket_connect(id: SocketId, remote: SocketAddr) -> Result<(), SocketErro
     };
     // SOCKETS dropped here
 
-    // Phase 2: Enqueue SYN packet
+    // Phase 2: Transmit SYN packet (routes to LOOPBACK or NIC)
     if pkt_len > 0 {
-        let mut lo = LOOPBACK.lock();
-        lo.enqueue(&pkt_buf[..pkt_len]);
-        drop(lo);
+        crate::serial_println!("[TCP] SYN sent to {}.{}.{}.{}:{} (local port {}, pkt_len={})",
+            remote.addr.0[0], remote.addr.0[1], remote.addr.0[2], remote.addr.0[3],
+            remote.port, local.port, pkt_len);
+        nic_dispatch::transmit_ip(&pkt_buf[..pkt_len]);
     }
 
-    // Phase 3: Deliver pending packets (synchronous loopback handshake)
-    // This will process SYN->SYN+ACK->ACK
-    for _ in 0..10 {
+    // Phase 3: Deliver pending packets (handshake)
+    // For NIC connections, need more iterations to allow for wire latency
+    let is_nic = !nic_dispatch::is_loopback(&remote.addr.0);
+    let max_iters = if is_nic { 100_000 } else { 10 };
+
+    for i in 0..max_iters {
         deliver_one();
 
         // Check if we're established
         let table = SOCKETS.lock();
         if let Some(sock) = table.get(id) {
             if sock.state == SocketState::Established {
+                crate::serial_println!("[TCP] Established after {} iterations", i);
                 return Ok(());
             }
+        }
+
+        if is_nic {
+            core::hint::spin_loop();
         }
     }
 
     // If we get here, handshake didn't complete
+    crate::serial_println!("[TCP] Connect timeout after {} iterations", max_iters);
     Err(SocketError::ConnectionRefused)
 }
 
@@ -225,13 +242,11 @@ pub fn socket_send(id: SocketId, data: &[u8]) -> Result<usize, SocketError> {
     };
     // SOCKETS dropped here
 
-    // Phase 2: Enqueue the packet
+    // Phase 2: Transmit the packet (routes to LOOPBACK or NIC)
     if pkt_len > 0 {
-        let mut lo = LOOPBACK.lock();
-        lo.enqueue(&pkt_buf[..pkt_len]);
-        drop(lo);
+        nic_dispatch::transmit_ip(&pkt_buf[..pkt_len]);
 
-        // Phase 3: Deliver (synchronous loopback)
+        // Phase 3: Deliver pending
         deliver_one();
     }
 
@@ -259,9 +274,7 @@ pub fn socket_sendto(
     };
 
     if pkt_len > 0 {
-        let mut lo = LOOPBACK.lock();
-        lo.enqueue(&pkt_buf[..pkt_len]);
-        drop(lo);
+        nic_dispatch::transmit_ip(&pkt_buf[..pkt_len]);
         deliver_one();
     }
 
@@ -359,11 +372,9 @@ pub fn socket_shutdown(id: SocketId) -> Result<(), SocketError> {
     };
     // SOCKETS dropped here
 
-    // Phase 2: Enqueue FIN
+    // Phase 2: Transmit FIN
     if pkt_len > 0 {
-        let mut lo = LOOPBACK.lock();
-        lo.enqueue(&pkt_buf[..pkt_len]);
-        drop(lo);
+        nic_dispatch::transmit_ip(&pkt_buf[..pkt_len]);
 
         // Phase 3: Deliver FIN + process ACK/FIN responses
         for _ in 0..10 {
@@ -394,37 +405,41 @@ pub fn socket_close(id: SocketId) -> Result<(), SocketError> {
     table.release(id)
 }
 
-/// Deliver one pending loopback packet.
-/// Dequeues from LOOPBACK, then dispatches to the appropriate protocol handler.
+/// Deliver one pending packet from either loopback or NIC.
+/// Dequeues from LOOPBACK, then also polls NIC RX.
 fn deliver_one() {
-    // Phase 1: Dequeue from LOOPBACK
+    // Phase 1: Try LOOPBACK first
     let packet = {
         let mut lo = LOOPBACK.lock();
         lo.dequeue()
     };
     // LOOPBACK dropped here
 
-    let (pkt_buf, pkt_len) = match packet {
-        Some(p) => p,
-        None => return,
-    };
+    if let Some((pkt_buf, pkt_len)) = packet {
+        // Phase 2: Parse IP header and dispatch
+        let ip_hdr = match Ipv4Header::from_bytes(&pkt_buf[..pkt_len]) {
+            Some(h) => h,
+            None => return,
+        };
 
-    // Phase 2: Parse IP header and dispatch
-    let ip_hdr = match Ipv4Header::from_bytes(&pkt_buf[..pkt_len]) {
-        Some(h) => h,
-        None => return,
-    };
+        let ip_payload = &pkt_buf[Ipv4Header::SIZE..pkt_len];
 
-    let ip_payload = &pkt_buf[Ipv4Header::SIZE..pkt_len];
+        // Phase 3: Lock SOCKETS and deliver to protocol handler
+        let mut table = SOCKETS.lock();
 
-    // Phase 3: Lock SOCKETS and deliver to protocol handler
-    let mut table = SOCKETS.lock();
-
-    match ip_hdr.protocol {
-        17 => udp::udp_receive_packet(&ip_hdr, ip_payload, &mut table),
-        6 => tcp::tcp_receive_packet(&ip_hdr, ip_payload, &mut table),
-        _ => {} // Unknown protocol, drop
+        match ip_hdr.protocol {
+            17 => udp::udp_receive_packet(&ip_hdr, ip_payload, &mut table),
+            6 => tcp::tcp_receive_packet(&ip_hdr, ip_payload, &mut table),
+            _ => {} // Unknown protocol, drop
+        }
+        return;
     }
+
+    // Phase 4: Try NIC RX if loopback was empty
+    nic_dispatch::nic_receive_one();
+
+    // Phase 5: Check retransmit timers
+    super::tcp_timer::check_all_retransmits();
 }
 
 /// Deliver all pending loopback packets (up to queue size).
@@ -438,6 +453,108 @@ pub fn deliver_pending() {
             break;
         }
         deliver_one();
+    }
+}
+
+// ============================================================================
+// poll() support
+// ============================================================================
+
+/// Poll event flags (POSIX-compatible).
+pub const POLLIN: u16 = 1;
+pub const POLLOUT: u16 = 4;
+pub const POLLERR: u16 = 8;
+pub const POLLHUP: u16 = 16;
+
+/// Poll file descriptor — C-compatible layout.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PollFd {
+    pub fd: u32,
+    pub events: u16,
+    pub revents: u16,
+}
+
+/// Poll multiple socket file descriptors for events.
+///
+/// Returns the number of fds with non-zero revents, 0 on timeout, -1 on error.
+/// timeout_ms: -1 = infinite, 0 = instant, >0 = milliseconds.
+pub fn socket_poll(fds: &mut [PollFd], timeout_ms: i64) -> i32 {
+    use crate::x86::idt::tick_count;
+
+    let start = tick_count();
+
+    loop {
+        // Process pending packets
+        deliver_one();
+
+        // Check all fds
+        let mut ready_count: i32 = 0;
+        {
+            let table = SOCKETS.lock();
+            for pfd in fds.iter_mut() {
+                let sock_id = super::socket::SocketId(pfd.fd);
+                pfd.revents = 0;
+
+                if let Some(sock) = table.get(sock_id) {
+                    // POLLIN: data available or connection closed (EOF)
+                    if pfd.events & POLLIN != 0 {
+                        if !sock.rx.is_empty()
+                            || sock.state == SocketState::CloseWait
+                            || sock.state == SocketState::Closed
+                            || sock.state == SocketState::TimeWait
+                        {
+                            pfd.revents |= POLLIN;
+                        }
+                    }
+
+                    // POLLOUT: can send data
+                    if pfd.events & POLLOUT != 0 {
+                        if sock.state == SocketState::Established {
+                            pfd.revents |= POLLOUT;
+                        }
+                    }
+
+                    // POLLERR: error condition
+                    if sock.active && sock.state == SocketState::Closed {
+                        pfd.revents |= POLLERR;
+                    }
+
+                    // POLLHUP: hangup
+                    if sock.state == SocketState::Closed
+                        || sock.state == SocketState::CloseWait
+                    {
+                        pfd.revents |= POLLHUP;
+                    }
+
+                    if pfd.revents != 0 {
+                        ready_count += 1;
+                    }
+                } else {
+                    // Invalid fd
+                    pfd.revents = POLLERR;
+                    ready_count += 1;
+                }
+            }
+        }
+
+        if ready_count > 0 {
+            return ready_count;
+        }
+
+        // Timeout check
+        if timeout_ms == 0 {
+            return 0;
+        }
+
+        if timeout_ms > 0 {
+            let elapsed = tick_count().saturating_sub(start) as i64;
+            if elapsed >= timeout_ms {
+                return 0;
+            }
+        }
+
+        core::hint::spin_loop();
     }
 }
 

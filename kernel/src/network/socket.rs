@@ -6,9 +6,12 @@
 
 #![allow(dead_code)]
 
+extern crate alloc;
+use alloc::boxed::Box;
 use fabric_types::ProcessId;
 use super::addr::{SocketAddr, SocketType, Protocol};
 use super::buffer::RingBuffer;
+use super::tcp_timer::RetransmitQueue;
 
 /// Maximum number of sockets.
 pub const MAX_SOCKETS: usize = 256;
@@ -106,6 +109,10 @@ pub struct Socket {
     /// TCP: send window (advertised by peer).
     pub send_window: u16,
 
+    // -- TCP retransmission --
+    /// Retransmit queue (TCP only, None for UDP).
+    pub retransmit: Option<Box<RetransmitQueue>>,
+
     // -- Listen backlog --
     /// Pending connections for listening sockets.
     pub backlog: [SocketId; MAX_BACKLOG],
@@ -131,6 +138,7 @@ impl Socket {
             recv_seq: 0,
             recv_window: 4096,
             send_window: 4096,
+            retransmit: None,
             backlog: [SocketId::INVALID; MAX_BACKLOG],
             backlog_count: 0,
         }
@@ -146,7 +154,7 @@ impl Socket {
 
 /// Socket table — 256 slots with generation-counted allocation.
 pub struct SocketTable {
-    sockets: [Socket; MAX_SOCKETS],
+    pub sockets: [Socket; MAX_SOCKETS],
 }
 
 impl SocketTable {
@@ -174,6 +182,10 @@ impl SocketTable {
                 self.sockets[slot].sock_type = sock_type;
                 self.sockets[slot].protocol = protocol;
                 self.sockets[slot].owner = owner;
+                // TCP sockets get a retransmit queue
+                if protocol == Protocol::Tcp {
+                    self.sockets[slot].retransmit = Some(Box::new(RetransmitQueue::new()));
+                }
                 return Ok(SocketId::pack(slot as u8, gen));
             }
         }
