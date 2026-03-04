@@ -48,7 +48,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v0.9.0 — Phase 13 (TCP Reliability)");
+    serial_println!("[FABRIC]   Fabric OS v1.0.0 — Phase 15 (TLS/HTTPS)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -480,6 +480,21 @@ extern "C" fn _start() -> ! {
     // OCRB Phase 13 Gate
     serial_println!();
     ocrb::run_phase13_gate();
+
+    // Phase 15: TLS/HTTPS Foundation
+    serial_println!();
+    serial_println!("[PHASE15] ============================================");
+    serial_println!("[PHASE15]   Phase 15 — TLS/HTTPS Foundation");
+    serial_println!("[PHASE15] ============================================");
+    serial_println!("[PHASE15] Crypto: X25519, ChaCha20-Poly1305, HKDF-SHA256");
+    serial_println!("[PHASE15] TLS 1.3: ClientHello, key schedule, encrypted records");
+    serial_println!("[PHASE15] Syscalls: tls_connect(25), tls_send(26), tls_recv(27), tls_close(28)");
+    serial_println!("[PHASE15] Session table: 8 concurrent TLS sessions");
+    serial_println!("[PHASE15] Phase 15 initialization complete");
+
+    // OCRB Phase 15 Gate
+    serial_println!();
+    ocrb::run_phase15_gate();
 
     // Re-initialize process table for production use (OCRB tests left stale state)
     process::TABLE.lock().clear();

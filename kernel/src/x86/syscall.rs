@@ -448,6 +448,77 @@ extern "C" fn syscall_dispatch(frame: *mut SavedContext) {
             }
         },
 
+        // SYS_TLS_CONNECT: rdi = socket fd, rsi = hostname_ptr, rdx = hostname_len
+        25 => {
+            let fd = frame.rdi;
+            let name_ptr = frame.rsi;
+            let name_len = frame.rdx;
+            if name_ptr >= 0x0000_8000_0000_0000 || name_len > 256 {
+                frame.rax = u64::MAX;
+            } else {
+                let name_slice = unsafe {
+                    core::slice::from_raw_parts(name_ptr as *const u8, name_len as usize)
+                };
+                if let Ok(hostname) = core::str::from_utf8(name_slice) {
+                    let sock_id = match resolve_socket_fd(fd) {
+                        Some(id) => id,
+                        None => { frame.rax = u64::MAX; return; }
+                    };
+                    match crate::network::tls::tls_connect(sock_id, hostname) {
+                        Ok(session_idx) => frame.rax = session_idx as u64,
+                        Err(_) => frame.rax = u64::MAX,
+                    }
+                } else {
+                    frame.rax = u64::MAX;
+                }
+            }
+        },
+
+        // SYS_TLS_SEND: rdi = session_idx, rsi = buf_ptr, rdx = len
+        26 => {
+            let session_idx = frame.rdi as usize;
+            let buf_ptr = frame.rsi;
+            let len = frame.rdx;
+            if buf_ptr >= 0x0000_8000_0000_0000 || len > 65536 {
+                frame.rax = u64::MAX;
+            } else {
+                let data = unsafe {
+                    core::slice::from_raw_parts(buf_ptr as *const u8, len as usize)
+                };
+                match crate::network::tls::tls_send(session_idx, data) {
+                    Ok(n) => frame.rax = n as u64,
+                    Err(_) => frame.rax = u64::MAX,
+                }
+            }
+        },
+
+        // SYS_TLS_RECV: rdi = session_idx, rsi = buf_ptr, rdx = len
+        27 => {
+            let session_idx = frame.rdi as usize;
+            let buf_ptr = frame.rsi;
+            let len = frame.rdx;
+            if buf_ptr >= 0x0000_8000_0000_0000 || len > 65536 {
+                frame.rax = u64::MAX;
+            } else {
+                let buf = unsafe {
+                    core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len as usize)
+                };
+                match crate::network::tls::tls_recv(session_idx, buf) {
+                    Ok(n) => frame.rax = n as u64,
+                    Err(_) => frame.rax = u64::MAX,
+                }
+            }
+        },
+
+        // SYS_TLS_CLOSE: rdi = session_idx
+        28 => {
+            let session_idx = frame.rdi as usize;
+            match crate::network::tls::tls_close(session_idx) {
+                Ok(()) => frame.rax = 0,
+                Err(_) => frame.rax = u64::MAX,
+            }
+        },
+
         // SYS_POLL: rdi = fds_ptr, rsi = nfds, rdx = timeout_ms
         24 => {
             let fds_ptr = frame.rdi;

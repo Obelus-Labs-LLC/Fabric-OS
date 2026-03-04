@@ -405,6 +405,11 @@ pub fn socket_close(id: SocketId) -> Result<(), SocketError> {
     table.release(id)
 }
 
+/// Public wrapper for deliver_one (used by TLS handshake).
+pub fn deliver_one_public() {
+    deliver_one();
+}
+
 /// Deliver one pending packet from either loopback or NIC.
 /// Dequeues from LOOPBACK, then also polls NIC RX.
 fn deliver_one() {

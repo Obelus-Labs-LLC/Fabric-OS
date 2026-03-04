@@ -25,6 +25,8 @@ pub mod arp;
 pub mod dns;
 pub mod http;
 pub mod nic_dispatch;
+pub mod crypto;
+pub mod tls;
 
 use spin::Mutex;
 use crate::serial_println;
