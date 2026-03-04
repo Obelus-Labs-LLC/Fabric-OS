@@ -6,7 +6,8 @@
 #![allow(dead_code)]
 
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use crate::memory;
+use crate::memory::{self, VirtAddr, PhysAddr};
+use crate::memory::page_table::PageTableFlags;
 use crate::serial_println;
 
 // --- MSR addresses ---
@@ -98,8 +99,26 @@ pub fn init() {
         unsafe { wrmsr(IA32_APIC_BASE_MSR, apic_base_msr | (1 << 11)); }
     }
 
-    // Map via HHDM
+    // Map via HHDM — the APIC MMIO region (typically 0xFEE00000) may not
+    // be covered by Limine's HHDM since it only maps RAM, not MMIO.
+    // Explicitly map the APIC page into the kernel page table.
     let apic_base_virt = apic_base_phys + memory::hhdm_offset();
+    let virt = VirtAddr::new(apic_base_virt);
+    let phys = PhysAddr(apic_base_phys);
+    let flags = PageTableFlags::PRESENT
+        | PageTableFlags::WRITABLE
+        | PageTableFlags::NO_CACHE
+        | PageTableFlags::WRITE_THROUGH
+        | PageTableFlags::NO_EXECUTE;
+    match crate::memory::mapper::map(virt, phys, flags) {
+        Ok(()) => {},
+        Err(crate::memory::mapper::MapError::AlreadyMapped) => {
+            // Already mapped by bootloader HHDM — fine
+        },
+        Err(e) => {
+            serial_println!("[APIC] WARNING: Failed to map APIC page: {:?}", e);
+        }
+    }
     APIC_BASE_VIRT.store(apic_base_virt, Ordering::Release);
 
     // Read APIC ID and version for diagnostic

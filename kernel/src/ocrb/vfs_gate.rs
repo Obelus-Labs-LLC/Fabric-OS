@@ -3,6 +3,10 @@
 //! 10 tests verifying inode table, mount resolution, tmpfs read/write,
 //! directory operations, devfs devices, syscall integration, stdio,
 //! and CPIO parsing.
+//!
+//! All tests operate on the global VFS tables (already initialized by
+//! vfs::init()) to avoid stack-allocating large InodeTable/MountTable
+//! structs (~32KB each) which overflow the kernel stack.
 
 #![allow(dead_code)]
 
@@ -26,13 +30,14 @@ pub fn run_all_tests() -> Vec<OcrbResult> {
 }
 
 /// Test 1: Inode table alloc/get/release with generation tracking.
+/// Uses the global INODES table — allocates, verifies, then releases.
 fn test_inode_table_crud() -> OcrbResult {
-    use crate::vfs::inode::{InodeTable, InodeType};
+    use crate::vfs::inode::InodeType;
 
-    let mut table = InodeTable::new();
+    let mut inodes = crate::vfs::INODES.lock();
 
     // Allocate an inode
-    let id1 = match table.alloc(InodeType::File, 1, 42) {
+    let id1 = match inodes.alloc(InodeType::File, 99, 42) {
         Ok(id) => id,
         Err(_) => return OcrbResult {
             test_name: "Inode Table CRUD",
@@ -42,8 +47,9 @@ fn test_inode_table_crud() -> OcrbResult {
     };
 
     // Verify we can get it
-    let inode = table.get(id1);
+    let inode = inodes.get(id1);
     if inode.is_none() || inode.unwrap().fs_data != 42 {
+        let _ = inodes.release(id1);
         return OcrbResult {
             test_name: "Inode Table CRUD",
             passed: false, score: 0, weight: 10,
@@ -52,11 +58,31 @@ fn test_inode_table_crud() -> OcrbResult {
     }
 
     // Allocate a second inode
-    let id2 = table.alloc(InodeType::Directory, 1, 99).unwrap();
-    assert!(id1 != id2);
+    let id2 = match inodes.alloc(InodeType::Directory, 99, 99) {
+        Ok(id) => id,
+        Err(_) => {
+            let _ = inodes.release(id1);
+            return OcrbResult {
+                test_name: "Inode Table CRUD",
+                passed: false, score: 0, weight: 10,
+                details: String::from("Failed to allocate second inode"),
+            };
+        }
+    };
+
+    if id1 == id2 {
+        let _ = inodes.release(id1);
+        let _ = inodes.release(id2);
+        return OcrbResult {
+            test_name: "Inode Table CRUD",
+            passed: false, score: 0, weight: 10,
+            details: String::from("Two inodes got same ID"),
+        };
+    }
 
     // Release first inode
-    if table.release(id1).is_err() {
+    if inodes.release(id1).is_err() {
+        let _ = inodes.release(id2);
         return OcrbResult {
             test_name: "Inode Table CRUD",
             passed: false, score: 0, weight: 10,
@@ -65,7 +91,8 @@ fn test_inode_table_crud() -> OcrbResult {
     }
 
     // Verify released inode is gone
-    if table.get(id1).is_some() {
+    if inodes.get(id1).is_some() {
+        let _ = inodes.release(id2);
         return OcrbResult {
             test_name: "Inode Table CRUD",
             passed: false, score: 0, weight: 10,
@@ -74,13 +101,17 @@ fn test_inode_table_crud() -> OcrbResult {
     }
 
     // Second inode still valid
-    if table.get(id2).is_none() {
+    if inodes.get(id2).is_none() {
+        let _ = inodes.release(id2);
         return OcrbResult {
             test_name: "Inode Table CRUD",
             passed: false, score: 0, weight: 10,
             details: String::from("Second inode lost after first released"),
         };
     }
+
+    // Clean up
+    let _ = inodes.release(id2);
 
     OcrbResult {
         test_name: "Inode Table CRUD",
@@ -90,21 +121,22 @@ fn test_inode_table_crud() -> OcrbResult {
 }
 
 /// Test 2: Mount table + path resolution with longest-prefix matching.
+/// Verifies the global mount table set up by vfs::init().
 fn test_mount_resolve() -> OcrbResult {
-    use crate::vfs::mount::{MountTable, FsType};
-    use crate::vfs::inode::InodeId;
+    use crate::vfs::mount::FsType;
 
-    let mut table = MountTable::new();
+    let mounts = crate::vfs::MOUNTS.lock();
 
-    let root_inode = InodeId::new(1);
-    let dev_inode = InodeId::new(2);
-
-    table.mount(b"/", FsType::Tmpfs, root_inode).unwrap();
-    table.mount(b"/dev", FsType::Devfs, dev_inode).unwrap();
-
-    // Resolve "/" → root mount
-    let r = table.resolve(b"/").unwrap();
-    let mount = table.get(r.mount_index).unwrap();
+    // Resolve "/" → root mount (tmpfs)
+    let r = match mounts.resolve(b"/") {
+        Some(r) => r,
+        None => return OcrbResult {
+            test_name: "Mount + Resolve",
+            passed: false, score: 0, weight: 10,
+            details: String::from("Failed to resolve /"),
+        },
+    };
+    let mount = mounts.get(r.mount_index).unwrap();
     if mount.fs_type != FsType::Tmpfs {
         return OcrbResult {
             test_name: "Mount + Resolve",
@@ -114,8 +146,15 @@ fn test_mount_resolve() -> OcrbResult {
     }
 
     // Resolve "/dev/null" → devfs mount (longest prefix)
-    let r = table.resolve(b"/dev/null").unwrap();
-    let mount = table.get(r.mount_index).unwrap();
+    let r = match mounts.resolve(b"/dev/null") {
+        Some(r) => r,
+        None => return OcrbResult {
+            test_name: "Mount + Resolve",
+            passed: false, score: 0, weight: 10,
+            details: String::from("Failed to resolve /dev/null"),
+        },
+    };
+    let mount = mounts.get(r.mount_index).unwrap();
     if mount.fs_type != FsType::Devfs {
         return OcrbResult {
             test_name: "Mount + Resolve",
@@ -130,13 +169,20 @@ fn test_mount_resolve() -> OcrbResult {
         return OcrbResult {
             test_name: "Mount + Resolve",
             passed: false, score: 0, weight: 10,
-            details: String::from("Remaining path is not 'null'"),
+            details: alloc::format!("Remaining path is '{}'", core::str::from_utf8(remaining).unwrap_or("?")),
         };
     }
 
-    // Resolve "/foo" → root mount
-    let r = table.resolve(b"/foo").unwrap();
-    let mount = table.get(r.mount_index).unwrap();
+    // Resolve "/foo" → root mount (tmpfs)
+    let r = match mounts.resolve(b"/foo") {
+        Some(r) => r,
+        None => return OcrbResult {
+            test_name: "Mount + Resolve",
+            passed: false, score: 0, weight: 10,
+            details: String::from("Failed to resolve /foo"),
+        },
+    };
+    let mount = mounts.get(r.mount_index).unwrap();
     if mount.fs_type != FsType::Tmpfs {
         return OcrbResult {
             test_name: "Mount + Resolve",
@@ -153,40 +199,49 @@ fn test_mount_resolve() -> OcrbResult {
 }
 
 /// Test 3: Tmpfs create file, write data, read back.
+/// Uses the global TMPFS and INODES tables.
 fn test_tmpfs_read_write() -> OcrbResult {
-    use crate::vfs::inode::{InodeTable, InodeType};
-    use crate::vfs::tmpfs::Tmpfs;
+    use crate::vfs::inode::InodeType;
 
-    let mut inodes = InodeTable::new();
-    let mut tmpfs = Tmpfs::new();
+    // Allocate a test file inode
+    let file_inode = {
+        let mut inodes = crate::vfs::INODES.lock();
+        let tmpfs = crate::vfs::TMPFS.lock();
+        match inodes.alloc(InodeType::File, tmpfs.fs_id(), 0) {
+            Ok(id) => id,
+            Err(_) => return OcrbResult {
+                test_name: "Tmpfs Create + Read/Write",
+                passed: false, score: 0, weight: 15,
+                details: String::from("Failed to allocate file inode"),
+            },
+        }
+    };
 
-    // Create root
-    let root = inodes.alloc(InodeType::Directory, 1, 0).unwrap();
-    tmpfs.init(1, root);
-
-    // Create a file
-    let file_inode = inodes.alloc(InodeType::File, 1, 0).unwrap();
-    tmpfs.add_dir_entry(root, b"hello.txt", file_inode);
-
-    // Write data
+    // Write data via tmpfs
     let test_data = b"Hello, Fabric OS!";
-    let written = tmpfs.write(file_inode, 0, test_data);
-    if written != test_data.len() {
-        return OcrbResult {
-            test_name: "Tmpfs Create + Read/Write",
-            passed: false, score: 0, weight: 15,
-            details: String::from("Write returned wrong byte count"),
-        };
+    {
+        let mut tmpfs = crate::vfs::TMPFS.lock();
+        let written = tmpfs.write(file_inode, 0, test_data);
+        if written != test_data.len() {
+            return OcrbResult {
+                test_name: "Tmpfs Create + Read/Write",
+                passed: false, score: 0, weight: 15,
+                details: String::from("Write returned wrong byte count"),
+            };
+        }
     }
 
     // Read back
     let mut buf = [0u8; 64];
-    let read = tmpfs.read(file_inode, 0, &mut buf);
+    let read = {
+        let tmpfs = crate::vfs::TMPFS.lock();
+        tmpfs.read(file_inode, 0, &mut buf)
+    };
     if read != test_data.len() {
         return OcrbResult {
             test_name: "Tmpfs Create + Read/Write",
             passed: false, score: 0, weight: 15,
-            details: String::from("Read returned wrong byte count"),
+            details: alloc::format!("Read returned {} bytes, expected {}", read, test_data.len()),
         };
     }
 
@@ -199,13 +254,20 @@ fn test_tmpfs_read_write() -> OcrbResult {
     }
 
     // Verify file size
-    if tmpfs.file_size(file_inode) != test_data.len() as u64 {
+    let size = {
+        let tmpfs = crate::vfs::TMPFS.lock();
+        tmpfs.file_size(file_inode)
+    };
+    if size != test_data.len() as u64 {
         return OcrbResult {
             test_name: "Tmpfs Create + Read/Write",
             passed: false, score: 0, weight: 15,
             details: String::from("File size mismatch"),
         };
     }
+
+    // Clean up inode
+    let _ = crate::vfs::INODES.lock().release(file_inode);
 
     OcrbResult {
         test_name: "Tmpfs Create + Read/Write",
@@ -215,54 +277,88 @@ fn test_tmpfs_read_write() -> OcrbResult {
 }
 
 /// Test 4: Tmpfs directory operations — create nested dirs, list entries.
+/// Uses the global tables.
 fn test_tmpfs_directory_ops() -> OcrbResult {
-    use crate::vfs::inode::{InodeTable, InodeType};
-    use crate::vfs::tmpfs::Tmpfs;
+    use crate::vfs::inode::InodeType;
 
-    let mut inodes = InodeTable::new();
-    let mut tmpfs = Tmpfs::new();
+    // Create a subdirectory inode
+    let sub_inode = {
+        let mut inodes = crate::vfs::INODES.lock();
+        let tmpfs = crate::vfs::TMPFS.lock();
+        match inodes.alloc(InodeType::Directory, tmpfs.fs_id(), 0) {
+            Ok(id) => id,
+            Err(_) => return OcrbResult {
+                test_name: "Tmpfs Directory Ops",
+                passed: false, score: 0, weight: 10,
+                details: String::from("Failed to allocate dir inode"),
+            },
+        }
+    };
 
-    let root = inodes.alloc(InodeType::Directory, 1, 0).unwrap();
-    tmpfs.init(1, root);
-
-    // Create subdirectory
-    let sub = inodes.alloc(InodeType::Directory, 1, 0).unwrap();
-    tmpfs.register_dir(sub);
-    tmpfs.add_dir_entry(root, b"subdir", sub);
-
-    // Create file in subdirectory
-    let file = inodes.alloc(InodeType::File, 1, 0).unwrap();
-    tmpfs.add_dir_entry(sub, b"file.txt", file);
-
-    // List root directory
-    let entries = tmpfs.readdir(root);
-    if entries.is_none() || entries.unwrap().len() != 1 {
-        return OcrbResult {
-            test_name: "Tmpfs Directory Ops",
-            passed: false, score: 0, weight: 10,
-            details: String::from("Root should have 1 entry (subdir)"),
-        };
+    // Register dir and add to root
+    {
+        let mut tmpfs = crate::vfs::TMPFS.lock();
+        tmpfs.register_dir(sub_inode);
+        let root = tmpfs.root_inode();
+        tmpfs.add_dir_entry(root, b"ocrb_subdir", sub_inode);
     }
 
-    // Verify subdirectory lookup
-    let found = tmpfs.lookup(root, b"subdir");
-    if found != Some(sub) {
-        return OcrbResult {
-            test_name: "Tmpfs Directory Ops",
-            passed: false, score: 0, weight: 10,
-            details: String::from("Lookup 'subdir' in root failed"),
-        };
+    // Create a file in the subdirectory
+    let file_inode = {
+        let mut inodes = crate::vfs::INODES.lock();
+        let tmpfs = crate::vfs::TMPFS.lock();
+        match inodes.alloc(InodeType::File, tmpfs.fs_id(), 0) {
+            Ok(id) => id,
+            Err(_) => return OcrbResult {
+                test_name: "Tmpfs Directory Ops",
+                passed: false, score: 0, weight: 10,
+                details: String::from("Failed to allocate file inode"),
+            },
+        }
+    };
+
+    {
+        let mut tmpfs = crate::vfs::TMPFS.lock();
+        tmpfs.add_dir_entry(sub_inode, b"nested.txt", file_inode);
     }
 
-    // Verify file in subdirectory
-    let found_file = tmpfs.lookup(sub, b"file.txt");
-    if found_file != Some(file) {
-        return OcrbResult {
-            test_name: "Tmpfs Directory Ops",
-            passed: false, score: 0, weight: 10,
-            details: String::from("Lookup 'file.txt' in subdir failed"),
-        };
+    // Verify lookup from root
+    {
+        let tmpfs = crate::vfs::TMPFS.lock();
+        let root = tmpfs.root_inode();
+        let found = tmpfs.lookup(root, b"ocrb_subdir");
+        if found != Some(sub_inode) {
+            return OcrbResult {
+                test_name: "Tmpfs Directory Ops",
+                passed: false, score: 0, weight: 10,
+                details: String::from("Lookup 'ocrb_subdir' in root failed"),
+            };
+        }
+
+        // Verify file in subdirectory
+        let found_file = tmpfs.lookup(sub_inode, b"nested.txt");
+        if found_file != Some(file_inode) {
+            return OcrbResult {
+                test_name: "Tmpfs Directory Ops",
+                passed: false, score: 0, weight: 10,
+                details: String::from("Lookup 'nested.txt' in subdir failed"),
+            };
+        }
+
+        // Verify readdir on subdirectory
+        let entries = tmpfs.readdir(sub_inode);
+        if entries.is_none() || entries.unwrap().len() != 1 {
+            return OcrbResult {
+                test_name: "Tmpfs Directory Ops",
+                passed: false, score: 0, weight: 10,
+                details: String::from("Subdir should have 1 entry"),
+            };
+        }
     }
+
+    // Clean up
+    let _ = crate::vfs::INODES.lock().release(file_inode);
+    let _ = crate::vfs::INODES.lock().release(sub_inode);
 
     OcrbResult {
         test_name: "Tmpfs Directory Ops",
@@ -484,11 +580,6 @@ fn test_vfs_open_read_close() -> OcrbResult {
 /// Test 9: Stdio pre-open — verify fd 0/1/2 setup works.
 fn test_stdio_pre_open() -> OcrbResult {
     use crate::vfs::open_file::OpenFlags;
-
-    // Verify the open file table has entries (from VFS init and any stdio setup)
-    let open_files = crate::vfs::OPEN_FILES.lock();
-    let _initial_count = open_files.count();
-    drop(open_files);
 
     // Test that we can allocate stdio-like entries
     let stdin_of = {
