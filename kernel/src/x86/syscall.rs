@@ -304,6 +304,64 @@ extern "C" fn syscall_dispatch(frame: *mut SavedContext) {
             frame.rax = syscall_getdents(fd, buf);
         },
 
+        // SYS_SOCKET: rdi = type (1=stream,2=dgram), rsi = protocol (6=tcp,17=udp)
+        10 => {
+            frame.rax = syscall_socket(frame.rdi, frame.rsi);
+        },
+
+        // SYS_BIND: rdi = fd, rsi = addr (u32 IPv4 big-endian), rdx = port
+        11 => {
+            frame.rax = syscall_bind(frame.rdi, frame.rsi as u32, frame.rdx as u16);
+        },
+
+        // SYS_LISTEN: rdi = fd
+        12 => {
+            frame.rax = syscall_listen(frame.rdi);
+        },
+
+        // SYS_ACCEPT: rdi = fd
+        13 => {
+            frame.rax = syscall_accept(frame.rdi);
+        },
+
+        // SYS_CONNECT: rdi = fd, rsi = addr (u32 IPv4 big-endian), rdx = port
+        14 => {
+            frame.rax = syscall_connect(frame.rdi, frame.rsi as u32, frame.rdx as u16);
+        },
+
+        // SYS_SEND: rdi = fd, rsi = buf_ptr, rdx = len
+        15 => {
+            let buf_ptr = frame.rsi;
+            let len = frame.rdx;
+            if buf_ptr >= 0x0000_8000_0000_0000 || len >= 4096 {
+                frame.rax = u64::MAX;
+                return;
+            }
+            let data = unsafe {
+                core::slice::from_raw_parts(buf_ptr as *const u8, len as usize)
+            };
+            frame.rax = syscall_send(frame.rdi, data);
+        },
+
+        // SYS_RECV: rdi = fd, rsi = buf_ptr, rdx = len
+        16 => {
+            let buf_ptr = frame.rsi;
+            let len = frame.rdx;
+            if buf_ptr >= 0x0000_8000_0000_0000 || len >= 4096 {
+                frame.rax = u64::MAX;
+                return;
+            }
+            let buf = unsafe {
+                core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len as usize)
+            };
+            frame.rax = syscall_recv(frame.rdi, buf);
+        },
+
+        // SYS_SHUTDOWN: rdi = fd
+        17 => {
+            frame.rax = syscall_shutdown(frame.rdi);
+        },
+
         _ => {
             serial_println!("[SYSCALL] Unknown syscall {}", syscall_num);
             frame.rax = u64::MAX; // Error
@@ -489,6 +547,200 @@ fn syscall_getdents(fd: u64, buf: &mut [u8]) -> u64 {
             }
         }
         None => u64::MAX,
+    }
+}
+
+// ============================================================================
+// Socket syscall helpers — SOCKET_FD_FLAG discriminates socket vs file fds
+// ============================================================================
+
+/// Bit 63 flag to distinguish socket fds from file fds in HandleTable.
+const SOCKET_FD_FLAG: u64 = 1u64 << 63;
+
+/// SYS_SOCKET helper
+fn syscall_socket(sock_type: u64, protocol: u64) -> u64 {
+    use crate::network::addr::{SocketType, Protocol};
+    use crate::network::ops;
+
+    let st = match sock_type {
+        1 => SocketType::Stream,
+        2 => SocketType::Datagram,
+        _ => return u64::MAX,
+    };
+    let proto = match protocol {
+        6 => Protocol::Tcp,
+        17 => Protocol::Udp,
+        _ => return u64::MAX,
+    };
+
+    let owner = get_current_pid().unwrap_or(fabric_types::ProcessId::KERNEL);
+
+    match ops::socket_create(st, proto, owner) {
+        Ok(sock_id) => {
+            // Allocate a handle in the current process, storing socket id with flag
+            let value = (sock_id.0 as u64) | SOCKET_FD_FLAG;
+            match alloc_handle(value) {
+                Some(fd) => fd as u64,
+                None => u64::MAX,
+            }
+        }
+        Err(_) => u64::MAX,
+    }
+}
+
+/// SYS_BIND helper
+fn syscall_bind(fd: u64, addr_u32: u32, port: u16) -> u64 {
+    use crate::network::addr::{Ipv4Addr, SocketAddr};
+    use crate::network::ops;
+
+    let sock_id = match resolve_socket_fd(fd) {
+        Some(id) => id,
+        None => return u64::MAX,
+    };
+
+    let addr = SocketAddr::new(Ipv4Addr::from_u32(addr_u32), port);
+    match ops::socket_bind(sock_id, addr) {
+        Ok(()) => 0,
+        Err(_) => u64::MAX,
+    }
+}
+
+/// SYS_LISTEN helper
+fn syscall_listen(fd: u64) -> u64 {
+    use crate::network::ops;
+
+    let sock_id = match resolve_socket_fd(fd) {
+        Some(id) => id,
+        None => return u64::MAX,
+    };
+
+    match ops::socket_listen(sock_id) {
+        Ok(()) => 0,
+        Err(_) => u64::MAX,
+    }
+}
+
+/// SYS_ACCEPT helper
+fn syscall_accept(fd: u64) -> u64 {
+    use crate::network::ops;
+
+    let sock_id = match resolve_socket_fd(fd) {
+        Some(id) => id,
+        None => return u64::MAX,
+    };
+
+    match ops::socket_accept(sock_id) {
+        Ok(new_id) => {
+            // Allocate a handle for the new connection socket
+            let value = (new_id.0 as u64) | SOCKET_FD_FLAG;
+            match alloc_handle(value) {
+                Some(fd) => fd as u64,
+                None => u64::MAX,
+            }
+        }
+        Err(_) => u64::MAX,
+    }
+}
+
+/// SYS_CONNECT helper
+fn syscall_connect(fd: u64, addr_u32: u32, port: u16) -> u64 {
+    use crate::network::addr::{Ipv4Addr, SocketAddr};
+    use crate::network::ops;
+
+    let sock_id = match resolve_socket_fd(fd) {
+        Some(id) => id,
+        None => return u64::MAX,
+    };
+
+    let remote = SocketAddr::new(Ipv4Addr::from_u32(addr_u32), port);
+    match ops::socket_connect(sock_id, remote) {
+        Ok(()) => 0,
+        Err(_) => u64::MAX,
+    }
+}
+
+/// SYS_SEND helper
+fn syscall_send(fd: u64, data: &[u8]) -> u64 {
+    use crate::network::ops;
+
+    let sock_id = match resolve_socket_fd(fd) {
+        Some(id) => id,
+        None => return u64::MAX,
+    };
+
+    match ops::socket_send(sock_id, data) {
+        Ok(n) => n as u64,
+        Err(_) => u64::MAX,
+    }
+}
+
+/// SYS_RECV helper
+fn syscall_recv(fd: u64, buf: &mut [u8]) -> u64 {
+    use crate::network::ops;
+
+    let sock_id = match resolve_socket_fd(fd) {
+        Some(id) => id,
+        None => return u64::MAX,
+    };
+
+    match ops::socket_recv(sock_id, buf) {
+        Ok(n) => n as u64,
+        Err(_) => u64::MAX,
+    }
+}
+
+/// SYS_SHUTDOWN helper
+fn syscall_shutdown(fd: u64) -> u64 {
+    use crate::network::ops;
+
+    let sock_id = match resolve_socket_fd(fd) {
+        Some(id) => id,
+        None => return u64::MAX,
+    };
+
+    match ops::socket_shutdown(sock_id) {
+        Ok(()) => 0,
+        Err(_) => u64::MAX,
+    }
+}
+
+/// Resolve a socket fd to a SocketId. Checks SOCKET_FD_FLAG bit 63.
+fn resolve_socket_fd(fd: u64) -> Option<crate::network::socket::SocketId> {
+    let handle = HandleId::pack(fd as u8, 0);
+
+    let sched = crate::process::SCHEDULER.try_lock()?;
+    let pid = sched.current()?;
+    drop(sched);
+
+    let table = crate::process::TABLE.try_lock()?;
+    let pcb = table.get(pid)?;
+
+    if let Ok(value) = pcb.handle_table.resolve(handle) {
+        if value & SOCKET_FD_FLAG != 0 {
+            let raw = (value & !SOCKET_FD_FLAG) as u32;
+            return Some(crate::network::socket::SocketId(raw));
+        }
+    }
+    None
+}
+
+/// Get current process PID.
+fn get_current_pid() -> Option<fabric_types::ProcessId> {
+    let sched = crate::process::SCHEDULER.try_lock()?;
+    sched.current()
+}
+
+/// Allocate a handle in the current process's handle table.
+fn alloc_handle(value: u64) -> Option<u8> {
+    let sched = crate::process::SCHEDULER.try_lock()?;
+    let pid = sched.current()?;
+    drop(sched);
+
+    let mut table = crate::process::TABLE.try_lock()?;
+    let pcb = table.get_mut(pid)?;
+    match pcb.handle_table.alloc(value) {
+        Ok(handle) => Some(handle.slot()),
+        Err(_) => None,
     }
 }
 

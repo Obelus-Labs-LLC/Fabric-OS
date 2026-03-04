@@ -10,7 +10,7 @@ OVMF_VARS_COPY := ovmf_vars.fd
 all: run
 
 build:
-	cd kernel && cargo build --release
+	cd kernel && RUSTFLAGS='-Awarnings' cargo build --release
 
 iso: build
 	# Create ISO directory structure

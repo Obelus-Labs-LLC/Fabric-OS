@@ -118,6 +118,9 @@ pub fn spawn(
 
 /// Terminate a process.
 pub fn terminate(pid: ProcessId) -> Result<(), ProcessError> {
+    // Clean up sockets BEFORE address space free (lock ordering)
+    crate::network::cleanup_process_sockets(pid);
+
     let mut table = TABLE.lock();
     let mut sched = SCHEDULER.lock();
 

@@ -74,6 +74,22 @@ pub enum SyscallNumber {
     Fstat   = 8,
     /// Read directory entries. RDI = fd, RSI = buf_ptr, RDX = len. Returns bytes read.
     Getdents = 9,
+    /// Create a socket. RDI = type (1=stream,2=dgram), RSI = protocol (6=tcp,17=udp). Returns socket fd.
+    Socket   = 10,
+    /// Bind a socket. RDI = fd, RSI = addr (u32 IPv4), RDX = port (u16). Returns 0.
+    Bind     = 11,
+    /// Listen on a socket. RDI = fd. Returns 0.
+    Listen   = 12,
+    /// Accept a connection. RDI = fd. Returns new socket fd.
+    Accept   = 13,
+    /// Connect a socket. RDI = fd, RSI = addr (u32 IPv4), RDX = port (u16). Returns 0.
+    Connect  = 14,
+    /// Send data on socket. RDI = fd, RSI = buf_ptr, RDX = len. Returns bytes sent.
+    Send     = 15,
+    /// Receive data from socket. RDI = fd, RSI = buf_ptr, RDX = len. Returns bytes received.
+    Recv     = 16,
+    /// Shutdown a socket. RDI = fd. Returns 0.
+    Shutdown = 17,
 }
 
 impl SyscallNumber {
@@ -90,6 +106,14 @@ impl SyscallNumber {
             7 => Some(Self::Stat),
             8 => Some(Self::Fstat),
             9 => Some(Self::Getdents),
+            10 => Some(Self::Socket),
+            11 => Some(Self::Bind),
+            12 => Some(Self::Listen),
+            13 => Some(Self::Accept),
+            14 => Some(Self::Connect),
+            15 => Some(Self::Send),
+            16 => Some(Self::Recv),
+            17 => Some(Self::Shutdown),
             _ => None,
         }
     }

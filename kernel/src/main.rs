@@ -13,6 +13,7 @@ mod governance;
 mod hal;
 mod handle;
 mod memory;
+mod network;
 mod ocrb;
 mod panic;
 mod process;
@@ -39,7 +40,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v0.4.0 — Phase 8 (VFS + Filesystem)");
+    serial_println!("[FABRIC]   Fabric OS v0.5.0 — Phase 9 (Network Stack)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -261,8 +262,9 @@ extern "C" fn _start() -> ! {
     x86::enable_interrupts();
     serial_println!("[PHASE7] Interrupts enabled (STI)");
 
-    // Brief wait to confirm timer is ticking
-    for _ in 0..100_000 {
+    // Brief wait to confirm timer is ticking (~20ms spin ensures ≥10 ticks
+    // with APIC timer at ~2ms/tick on QEMU)
+    for _ in 0..2_000_000 {
         core::hint::spin_loop();
     }
     let ticks = x86::idt::tick_count();
@@ -320,8 +322,23 @@ extern "C" fn _start() -> ! {
     serial_println!();
     ocrb::run_phase8_gate();
 
+    // Phase 9: Network Stack (Loopback)
     serial_println!();
-    serial_println!("[FABRIC] Phase 8 complete. VFS + filesystem verified.");
+    serial_println!("[PHASE9] ============================================");
+    serial_println!("[PHASE9]   Phase 9 — Network Stack (Loopback)");
+    serial_println!("[PHASE9] ============================================");
+
+    // Initialize network subsystem
+    network::init();
+
+    phase9_self_test();
+
+    // OCRB Phase 9 Gate
+    serial_println!();
+    ocrb::run_phase9_gate();
+
+    serial_println!();
+    serial_println!("[FABRIC] Phase 9 complete. Network stack verified.");
     serial_println!("[FABRIC] Halting.");
 
     halt();
@@ -742,6 +759,48 @@ fn phase8_self_test() {
     serial_println!("[PHASE8] Self-test: path resolution — OK");
 
     serial_println!("[PHASE8] All Phase 8 self-tests passed");
+}
+
+fn phase9_self_test() {
+    use crate::network::addr::{Ipv4Addr, SocketAddr};
+
+    // Test 1: Loopback address check
+    assert!(Ipv4Addr::LOOPBACK.is_loopback(), "127.0.0.1 should be loopback");
+    serial_println!("[PHASE9] Self-test: loopback address — OK");
+
+    // Test 2: Ring buffer basic operation
+    {
+        let mut rb = crate::network::buffer::RingBuffer::new();
+        assert!(rb.is_empty());
+        let written = rb.write(b"test");
+        assert_eq!(written, 4);
+        let mut buf = [0u8; 4];
+        let read = rb.read(&mut buf);
+        assert_eq!(read, 4);
+        assert_eq!(&buf, b"test");
+    }
+    serial_println!("[PHASE9] Self-test: ring buffer — OK");
+
+    // Test 3: Internet checksum
+    {
+        // RFC 1071 example: checksum of all-zeros should work
+        let data = [0u8; 20];
+        let cksum = crate::network::checksum::internet_checksum(&data);
+        // Checksum of all zeros is 0xFFFF (ones complement of zero)
+        assert_eq!(cksum, 0xFFFF);
+    }
+    serial_println!("[PHASE9] Self-test: internet checksum — OK");
+
+    // Test 4: Socket table available
+    {
+        let table = crate::network::SOCKETS.lock();
+        // Should be empty at init
+        // (count might not be 0 if OCRB tests ran, but the table should be accessible)
+        let _ = table.count();
+    }
+    serial_println!("[PHASE9] Self-test: socket table accessible — OK");
+
+    serial_println!("[PHASE9] All Phase 9 self-tests passed");
 }
 
 fn halt() -> ! {

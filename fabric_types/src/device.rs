@@ -13,6 +13,7 @@ pub enum DeviceClass {
     Timer        = 1,
     BlockStorage = 2,
     Framebuffer  = 3,
+    Network      = 4,
 }
 
 /// Operations a driver can handle.
