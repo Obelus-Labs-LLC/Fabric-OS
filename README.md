@@ -11,9 +11,9 @@
 
 | | |
 |:---|:---|
-| **Current State** | 15 kernel phases complete (0-14), all ORI 100/100. Loom fetches HTTP over real network. |
-| **Kernel LOC** | ~25K lines Rust, zero warnings, boots clean |
-| **Key Milestone** | Phase 14: Loom → DNS resolve → TCP handshake → HTTP GET → response display. End-to-end. |
+| **Current State** | 16 kernel phases complete (0-15), all ORI 100/100. TLS 1.3 crypto foundation in place. |
+| **Kernel LOC** | ~27K lines Rust, zero warnings, boots clean |
+| **Key Milestone** | Phase 15: X25519, ChaCha20-Poly1305, TLS 1.3 client, HTTPS syscalls. Crypto stack complete. |
 | **Timeline** | Completion-based, not calendar. Velocity: ~4 days per kernel phase historically. |
 
 ---
@@ -864,6 +864,112 @@ Items from the original README roadmap that were deferred in favor of practical 
 | **Council standalone daemon** | Ship governance engine for Linux/Mac/Windows |
 | **Compatibility layers** | Explore Windows/Mac app compatibility |
 
+### TIER 5: SYSTEM COMPLETION (Post-Phase 20)
+
+**Accessibility**
+
+| Target | Description |
+|:---|:---|
+| **Screen reader integration** | Orca or custom reader with Estate agent hooks |
+| **High contrast themes** | Colorblind modes (deuteranopia, protanopia, tritanopia) |
+| **Voice navigation** | Full voice control via Chauffeur agent |
+| **Switch control** | Motor impairment support with scanning input |
+| **Eye tracking** | Gaze-based cursor control and selection |
+
+**Multi-User & Identity**
+
+| Target | Description |
+|:---|:---|
+| **Family accounts** | Parental controls, per-child capability restrictions |
+| **Guest mode** | Ephemeral storage, wiped on logout |
+| **Enterprise directory** | LDAP and Active Directory integration |
+| **Biometric auth** | Fingerprint, face, hardware security keys (YubiKey) |
+
+**Power & Hardware**
+
+| Target | Description |
+|:---|:---|
+| **Power management** | Sleep, hibernate, hybrid sleep, fast boot |
+| **Battery health** | Monitoring, optimization, charge limit controls |
+| **Thermal management** | Groundskeeper-supervised fan curves and throttling |
+| **Hardware diversity** | ARM tablets, RISC-V workstations, community port program |
+
+**Connectivity Expansion**
+
+| Target | Description |
+|:---|:---|
+| **Bluetooth** | Audio (A2DP), input (HID), file transfer (OBEX), BLE sensors |
+| **USB** | Mass storage, webcams, printers, scanners, Thunderbolt docks |
+| **NFC** | Tap-to-pair, contactless payments, smart card auth |
+| **Mesh networking** | AI-optimized routing, self-healing, peer-to-peer Fabric communication |
+
+**Security & Compliance**
+
+| Target | Description |
+|:---|:---|
+| **Hardware security keys** | YubiKey, TPM 2.0, smart card integration |
+| **GDPR/CCPA tools** | Data export, right-to-deletion, consent management |
+| **Forensics** | Tamper-evident audit logs, incident response, legal hold |
+| **Certification paths** | FIPS 140-2 and Common Criteria evaluation targets |
+
+**System Operations**
+
+| Target | Description |
+|:---|:---|
+| **Atomic updates** | A/B partitioning, transactional system upgrades |
+| **Automatic rollback** | Failure detection triggers instant revert |
+| **Delta updates** | Bandwidth-efficient binary diffs |
+| **Backup** | User data sync, cloud options, peer-to-peer Fabric-to-Fabric |
+| **Disaster recovery** | Full system restore from minimal media |
+
+**Developer & Community**
+
+| Target | Description |
+|:---|:---|
+| **Documentation** | Comprehensive user guides, API reference, SDK docs |
+| **Community** | Forums, Discord, contribution guidelines, mentorship |
+| **Kernel debugger** | Tracing, profiling, live instrumentation tools |
+| **Remote diagnostics** | Opt-in telemetry for support cases |
+| **Hardware certification** | "Works with FabricOS" program for peripheral vendors |
+
+**Enterprise & Education**
+
+| Target | Description |
+|:---|:---|
+| **MDM integration** | Mobile device management for fleet enrollment |
+| **Fleet management** | Policy enforcement, remote wipe, configuration push |
+| **Audit dashboards** | Administrator visibility into capability usage |
+| **Classroom tools** | Educator management, student device restrictions |
+| **Institutional deployment** | Bulk provisioning, image management, PXE boot |
+
+### TIER 6: ECOSYSTEM SCALE
+
+**Hardware Partnerships**
+
+| Target | Description |
+|:---|:---|
+| **OEM reference designs** | Board support packages for partner hardware |
+| **Certification labs** | Testing infrastructure for "FabricOS Ready" badge |
+| **Pre-installed devices** | Ship FabricOS as primary OS on partner hardware |
+
+**Internationalization Framework**
+
+| Target | Description |
+|:---|:---|
+| **Translation system** | Community-driven i18n with crowdsourced translations |
+| **RTL language support** | Arabic, Hebrew layout and text rendering infrastructure |
+| **CJK input methods** | Chinese, Japanese, Korean IME framework |
+| **Localized documentation** | Multi-language docs platform with version tracking |
+
+**Mesh Networking AI**
+
+| Target | Description |
+|:---|:---|
+| **Chauffeur/Groundskeeper routing** | AI-optimized mesh path selection and load balancing |
+| **Predictive failure detection** | ML-based node health monitoring, pre-emptive rerouting |
+| **Self-healing topology** | Automatic mesh reconfiguration on node loss |
+| **Offline Fabric communication** | Device-to-device data sync without internet connectivity |
+
 ---
 
 ## 28. USER EXPERIENCE LAYER
@@ -909,7 +1015,105 @@ Negotiate with vendors (EasyAntiCheat, BattlEye) for FabricOS support, or sandbo
 
 ---
 
-## 31. HARDWARE PLATFORM
+## 31. SOFTWARE ECOSYSTEM
+
+### Distribution Model
+Fabric OS is **free and open source** (GPL kernel, MIT/Apache userspace). The OS itself will never cost money. Revenue comes from the premium agent marketplace — same model as Android (free OS, paid apps). All core system tools, drivers, and the Estate's base agent functionality ship with the OS at no cost.
+
+### Package Manager: `fabric-pkg`
+
+Fabric OS uses `fabric-pkg`, a declarative package manager designed for capability-aware installations.
+
+| Feature | Implementation |
+|:---|:---|
+| **Format** | `.fpkg` — compressed archive with manifest, capability declarations, and signatures |
+| **Dependency resolution** | SAT solver with capability-aware constraints |
+| **Installation** | Atomic: snapshot → install → verify → commit (rollback on failure) |
+| **Updates** | Delta patches with cryptographic chain verification |
+| **Channels** | `stable`, `beta`, `nightly` — users choose risk tolerance |
+| **Mirrors** | Decentralized via content-addressed storage (IPFS-compatible) |
+
+```
+fabric-pkg install loom-browser        # Install from stable
+fabric-pkg install --channel=beta app  # Install from beta channel
+fabric-pkg update --all                # Atomic update all packages
+fabric-pkg rollback loom-browser       # Revert to previous version
+fabric-pkg audit                       # Verify all package signatures
+```
+
+### Verified Builds
+
+Every package in the official repository is built from source with **reproducible builds**:
+- Build environment is deterministic (pinned toolchain, hermetic sandbox)
+- Any user can verify a binary matches its source via `fabric-pkg verify <package>`
+- Packages are signed with Ed25519 keys; the root signing key is held by Obelus Labs with offline backup
+- Third-party packages require developer identity verification and code review for the curated tier
+
+### Source Compilation
+
+Users can build any package from source:
+```
+fabric-pkg build --from-source loom-browser
+fabric-pkg build --from-source --optimize=native app  # CPU-specific optimizations
+```
+- Build dependencies are automatically fetched and sandboxed
+- Custom CFLAGS/RUSTFLAGS supported for advanced users
+- Cross-compilation targets: x86_64, aarch64, riscv64
+
+### Onboarding Flow
+
+First boot guides new users through four steps:
+
+| Step | Screen | Purpose |
+|:---|:---|:---|
+| **1. Identity** | Create local user profile | Name, avatar, preferences — no cloud account required |
+| **2. Network** | Connect WiFi/Ethernet | Connectivity setup, optional Fabric ID for sync |
+| **3. Estate Tour** | Interactive agent demos | Meet Butler, Concierge, and Archivist with live examples |
+| **4. Workspace** | Choose productivity preset | Developer, Creative, Business, or Minimal — pre-configures agent behavior and default apps |
+
+Total time: under 3 minutes. No telemetry, no mandatory sign-in, no forced updates.
+
+### Agent Marketplace
+
+The marketplace is the primary revenue engine. It operates on a curated app-store model with clear tiers.
+
+#### User-Created Agents
+- **Agent SDK:** Open source toolkit for building custom agents in Rust or FabricScript
+- **Local agents:** Users create personal automation agents that run locally (no review required)
+- **Published agents:** Submitted to marketplace, reviewed for security/quality, listed in the store
+- **Revenue split:** 80% to developer, 20% to Obelus Labs (industry-leading split)
+- **Pricing:** Developers set their own prices; free agents encouraged
+
+#### Premium Estate Agents
+- **Core Estate agents** (Butler, Maid, Groundskeeper, etc.) ship free with base functionality
+- **Premium tiers** unlock advanced features: deeper integrations, multi-device sync, priority processing
+- **Subscription model:** Monthly or annual, per-agent or Estate bundle
+- **Enterprise licensing:** Volume pricing for organizations deploying Fabric OS fleet-wide
+
+#### Legal Framework
+- **Developer Agreement:** Clear IP ownership (developers own their code, grant distribution license)
+- **User Privacy:** Agents declare data access requirements upfront via capability tokens — users grant or deny
+- **Liability:** Marketplace agents run in capability sandbox; malicious agents cannot escalate privileges
+- **Content Policy:** No agents that facilitate harm, surveillance, or rights violations
+- **Dispute Resolution:** Automated refund within 48 hours, human review for complex cases
+
+#### Integration with The Estate
+- **Capability tokens:** Marketplace agents request only the permissions they need (camera, network, files, etc.)
+- **Message bus:** Third-party agents communicate with Estate agents via the same typed message bus as system services
+- **Agent orchestration:** Butler can coordinate third-party agents alongside Estate agents in workflows
+- **Quality signals:** Usage metrics, user ratings, and OCRB-style automated testing for published agents
+
+### Ecosystem Metrics (Targets)
+| Metric | Year 1 | Year 3 |
+|:---|:---|:---|
+| Published agents | 100+ | 5,000+ |
+| Active developers | 50+ | 1,000+ |
+| Revenue per developer (avg) | $500/yr | $5,000/yr |
+| User agent install rate | 3 agents/user | 8 agents/user |
+
+---
+
+## 32. HARDWARE PLATFORM
 
 ### Current
 QEMU emulation with virtio-net, virtio-gpu framebuffer, PS/2 keyboard.
@@ -968,16 +1172,16 @@ The Estate's Groundskeeper agent monitors hardware sensors and thermal state onc
 
 ---
 
-## 32. IMMEDIATE NEXT STEPS
+## 33. IMMEDIATE NEXT STEPS
 
-### Phase 15: TLS/HTTPS Foundation
+### Phase 15: TLS/HTTPS Foundation — COMPLETE
 
-| Task | Deliverable |
-|:---|:---|
-| rustls no_std integration | TLS 1.3 client in kernel |
-| WebPKI root certificate bundle | Embedded CA certificates |
-| TLS syscalls (25-28) | tls_connect, tls_send, tls_recv, tls_close |
-| Certificate validation | Hostname verification |
+| Task | Deliverable | Status |
+|:---|:---|:---|
+| Custom crypto primitives | X25519, ChaCha20-Poly1305, HKDF-SHA256 (bare-metal, no_std) | Done |
+| TLS 1.3 client | ClientHello, ServerHello, key schedule, encrypted records | Done |
+| TLS syscalls (25-28) | tls_connect, tls_send, tls_recv, tls_close | Done |
+| OCRB Phase 15 gate | 10/10 tests, ORI 100/100 | Done |
 | Loom HTTPS support | `https://example.com` works end-to-end |
 
 ### Success Criteria
@@ -991,7 +1195,7 @@ The Estate's Groundskeeper agent monitors hardware sensors and thermal state onc
 
 ---
 
-## 33. PITCH PREPARATION
+## 34. PITCH PREPARATION
 
 ### Demo Video Script (3 minutes)
 
@@ -1021,7 +1225,7 @@ The Estate's Groundskeeper agent monitors hardware sensors and thermal state onc
 
 ---
 
-## 34. RISK REGISTER
+## 35. RISK REGISTER
 
 | Risk | Mitigation | Owner |
 |:---|:---|:---|
@@ -1033,7 +1237,7 @@ The Estate's Groundskeeper agent monitors hardware sensors and thermal state onc
 
 ---
 
-## 30. EXISTING CODE LOCATIONS
+## 36. EXISTING CODE LOCATIONS
 
 ```
 C:/Users/dshon/Projects/
