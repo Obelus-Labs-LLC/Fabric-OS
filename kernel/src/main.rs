@@ -17,9 +17,10 @@ mod ocrb;
 mod panic;
 mod process;
 mod serial;
+mod vfs;
 mod x86;
 use limine::BaseRevision;
-use limine::request::{MemoryMapRequest, HhdmRequest};
+use limine::request::{MemoryMapRequest, HhdmRequest, ModuleRequest};
 
 #[used]
 static BASE_REVISION: BaseRevision = BaseRevision::new();
@@ -30,12 +31,15 @@ static MEMORY_MAP: MemoryMapRequest = MemoryMapRequest::new();
 #[used]
 static HHDM: HhdmRequest = HhdmRequest::new();
 
+#[used]
+static MODULES: ModuleRequest = ModuleRequest::new();
+
 #[no_mangle]
 extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v0.3.0 — Phase 7 (Hardware + Userspace)");
+    serial_println!("[FABRIC]   Fabric OS v0.4.0 — Phase 8 (VFS + Filesystem)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -273,8 +277,51 @@ extern "C" fn _start() -> ! {
     serial_println!();
     ocrb::run_phase7_gate();
 
+    // Phase 8: VFS + RAM Filesystem + Initramfs
+    // Clean up Phase 7 OCRB state
+    governance::GOVERNANCE.lock().clear();
+    council::COUNCIL.lock().clear();
+    process::TABLE.lock().clear();
+    process::SCHEDULER.lock().clear();
+    bus::BUS.lock().clear();
+    capability::STORE.lock().clear();
+    process::init(); // Re-init Butler
+    governance::init();
+    council::init();
+
     serial_println!();
-    serial_println!("[FABRIC] Phase 7 complete. Hardware interrupts + userspace verified.");
+    serial_println!("[PHASE8] ============================================");
+    serial_println!("[PHASE8]   Phase 8 — VFS + RAM Filesystem");
+    serial_println!("[PHASE8] ============================================");
+
+    // Initialize VFS (mounts tmpfs at /, devfs at /dev)
+    vfs::init();
+
+    // Load initramfs if a module was provided by the bootloader
+    if let Some(module_response) = MODULES.get_response() {
+        let modules = module_response.modules();
+        if !modules.is_empty() {
+            let module = &modules[0];
+            let base = module.addr() as *const u8;
+            let size = module.size() as usize;
+            let archive = unsafe { core::slice::from_raw_parts(base, size) };
+            serial_println!("[PHASE8] Loading initramfs ({} bytes)", size);
+            vfs::load_initramfs(archive);
+        } else {
+            serial_println!("[PHASE8] No initramfs module provided (skipping)");
+        }
+    } else {
+        serial_println!("[PHASE8] No modules response from bootloader (skipping initramfs)");
+    }
+
+    phase8_self_test();
+
+    // OCRB Phase 8 Gate
+    serial_println!();
+    ocrb::run_phase8_gate();
+
+    serial_println!();
+    serial_println!("[FABRIC] Phase 8 complete. VFS + filesystem verified.");
     serial_println!("[FABRIC] Halting.");
 
     halt();
@@ -659,6 +706,42 @@ fn phase7_self_test() {
     serial_println!("[PHASE7] Self-test: Timer fired ({} ticks) — OK", ticks);
 
     serial_println!("[PHASE7] All Phase 7 self-tests passed");
+}
+
+fn phase8_self_test() {
+    // Test 1: VFS initialized — verify mounts exist
+    {
+        let mounts = vfs::MOUNTS.lock();
+        assert!(mounts.count() >= 2, "Should have at least 2 mounts (/ and /dev)");
+    }
+    serial_println!("[PHASE8] Self-test: VFS mounts present — OK");
+
+    // Test 2: Devfs devices exist
+    {
+        let devfs = vfs::DEVFS.lock();
+        assert!(devfs.is_initialized(), "Devfs should be initialized");
+        assert!(devfs.null_inode().is_valid(), "/dev/null inode should be valid");
+        assert!(devfs.zero_inode().is_valid(), "/dev/zero inode should be valid");
+        assert!(devfs.random_inode().is_valid(), "/dev/random inode should be valid");
+    }
+    serial_println!("[PHASE8] Self-test: devfs devices present — OK");
+
+    // Test 3: Tmpfs initialized
+    {
+        let tmpfs = vfs::TMPFS.lock();
+        assert!(tmpfs.is_initialized(), "Tmpfs should be initialized");
+        assert!(tmpfs.root_inode().is_valid(), "Tmpfs root inode should be valid");
+    }
+    serial_println!("[PHASE8] Self-test: tmpfs initialized — OK");
+
+    // Test 4: Path resolution works
+    {
+        let result = vfs::ops::resolve_path(b"/dev/null");
+        assert!(result.is_ok(), "/dev/null should resolve");
+    }
+    serial_println!("[PHASE8] Self-test: path resolution — OK");
+
+    serial_println!("[PHASE8] All Phase 8 self-tests passed");
 }
 
 fn halt() -> ! {

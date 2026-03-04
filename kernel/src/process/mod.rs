@@ -372,6 +372,9 @@ pub fn spawn_user(
         }
     }
 
+    // Step 6: Set up stdio (fd 0/1/2) for the process
+    crate::vfs::stdio::setup_stdio(pid);
+
     serial_println!(
         "[PROC] Spawned user process pid:{} entry=0x{:x} kstack=0x{:x}",
         pid.0, entry_point, kernel_stack_top

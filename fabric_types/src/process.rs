@@ -61,7 +61,19 @@ pub enum SyscallNumber {
     /// Write bytes to a handle. RDI = handle, RSI = buf_ptr, RDX = len.
     Write  = 2,
     /// Get current process ID. Returns PID in RAX.
-    GetPid = 3,
+    GetPid  = 3,
+    /// Open a file by path. RDI = path_ptr, RSI = path_len, RDX = flags. Returns fd.
+    Open    = 4,
+    /// Read from a file descriptor. RDI = fd, RSI = buf_ptr, RDX = len. Returns bytes read.
+    Read    = 5,
+    /// Close a file descriptor. RDI = fd. Returns 0 on success.
+    Close   = 6,
+    /// Stat a file by path. RDI = path_ptr, RSI = path_len, RDX = stat_buf. Returns 0.
+    Stat    = 7,
+    /// Fstat an open fd. RDI = fd, RSI = stat_buf. Returns 0.
+    Fstat   = 8,
+    /// Read directory entries. RDI = fd, RSI = buf_ptr, RDX = len. Returns bytes read.
+    Getdents = 9,
 }
 
 impl SyscallNumber {
@@ -72,6 +84,12 @@ impl SyscallNumber {
             1 => Some(Self::Yield),
             2 => Some(Self::Write),
             3 => Some(Self::GetPid),
+            4 => Some(Self::Open),
+            5 => Some(Self::Read),
+            6 => Some(Self::Close),
+            7 => Some(Self::Stat),
+            8 => Some(Self::Fstat),
+            9 => Some(Self::Getdents),
             _ => None,
         }
     }

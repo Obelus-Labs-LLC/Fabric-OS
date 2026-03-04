@@ -10,6 +10,7 @@
 use crate::serial_println;
 use super::gdt;
 use super::context::SavedContext;
+use fabric_types::HandleId;
 
 // MSR addresses
 const IA32_EFER:  u32 = 0xC000_0080;
@@ -169,24 +170,31 @@ extern "C" fn syscall_dispatch(frame: *mut SavedContext) {
             frame.rax = 0;
         },
 
-        // SYS_WRITE: rdi = handle, rsi = buf_ptr, rdx = len
+        // SYS_WRITE: rdi = fd, rsi = buf_ptr, rdx = len
         2 => {
-            let _handle = frame.rdi;
+            let fd = frame.rdi;
             let buf_ptr = frame.rsi;
             let len = frame.rdx;
 
-            // For Phase 7 testing, write directly to serial (handle 1 = stdout)
-            // Safety: we validate the pointer is in userspace range
-            if buf_ptr < 0x0000_8000_0000_0000 && len < 4096 {
-                let slice = unsafe {
-                    core::slice::from_raw_parts(buf_ptr as *const u8, len as usize)
-                };
+            // Validate user pointer
+            if buf_ptr >= 0x0000_8000_0000_0000 || len >= 4096 {
+                frame.rax = u64::MAX;
+                return;
+            }
+
+            let slice = unsafe {
+                core::slice::from_raw_parts(buf_ptr as *const u8, len as usize)
+            };
+
+            // fd 1 (stdout) and fd 2 (stderr) → serial output
+            if fd == 1 || fd == 2 {
                 for &byte in slice {
                     crate::serial::write_byte(byte);
                 }
-                frame.rax = len; // Return bytes written
+                frame.rax = len;
             } else {
-                frame.rax = u64::MAX; // Error: invalid pointer
+                // VFS write path: resolve fd → open file → write
+                frame.rax = syscall_vfs_write(fd, slice);
             }
         },
 
@@ -203,10 +211,284 @@ extern "C" fn syscall_dispatch(frame: *mut SavedContext) {
             }
         },
 
+        // SYS_OPEN: rdi = path_ptr, rsi = path_len, rdx = flags
+        4 => {
+            let path_ptr = frame.rdi;
+            let path_len = frame.rsi;
+            let flags = frame.rdx as u32;
+
+            if path_ptr >= 0x0000_8000_0000_0000 || path_len > 256 {
+                frame.rax = u64::MAX;
+                return;
+            }
+
+            let path = unsafe {
+                core::slice::from_raw_parts(path_ptr as *const u8, path_len as usize)
+            };
+
+            frame.rax = syscall_open(path, flags);
+        },
+
+        // SYS_READ: rdi = fd, rsi = buf_ptr, rdx = len
+        5 => {
+            let fd = frame.rdi;
+            let buf_ptr = frame.rsi;
+            let len = frame.rdx;
+
+            if buf_ptr >= 0x0000_8000_0000_0000 || len >= 4096 {
+                frame.rax = u64::MAX;
+                return;
+            }
+
+            let buf = unsafe {
+                core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len as usize)
+            };
+
+            frame.rax = syscall_read(fd, buf);
+        },
+
+        // SYS_CLOSE: rdi = fd
+        6 => {
+            let fd = frame.rdi;
+            frame.rax = syscall_close(fd);
+        },
+
+        // SYS_STAT: rdi = path_ptr, rsi = path_len, rdx = stat_buf
+        7 => {
+            let path_ptr = frame.rdi;
+            let path_len = frame.rsi;
+            let stat_buf = frame.rdx;
+
+            if path_ptr >= 0x0000_8000_0000_0000 || path_len > 256
+                || stat_buf >= 0x0000_8000_0000_0000
+            {
+                frame.rax = u64::MAX;
+                return;
+            }
+
+            let path = unsafe {
+                core::slice::from_raw_parts(path_ptr as *const u8, path_len as usize)
+            };
+
+            frame.rax = syscall_stat(path, stat_buf);
+        },
+
+        // SYS_FSTAT: rdi = fd, rsi = stat_buf
+        8 => {
+            let fd = frame.rdi;
+            let stat_buf = frame.rsi;
+
+            if stat_buf >= 0x0000_8000_0000_0000 {
+                frame.rax = u64::MAX;
+                return;
+            }
+
+            frame.rax = syscall_fstat(fd, stat_buf);
+        },
+
+        // SYS_GETDENTS: rdi = fd, rsi = buf_ptr, rdx = len
+        9 => {
+            let fd = frame.rdi;
+            let buf_ptr = frame.rsi;
+            let len = frame.rdx;
+
+            if buf_ptr >= 0x0000_8000_0000_0000 || len >= 65536 {
+                frame.rax = u64::MAX;
+                return;
+            }
+
+            let buf = unsafe {
+                core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len as usize)
+            };
+
+            frame.rax = syscall_getdents(fd, buf);
+        },
+
         _ => {
             serial_println!("[SYSCALL] Unknown syscall {}", syscall_num);
             frame.rax = u64::MAX; // Error
         },
+    }
+}
+
+// ============================================================================
+// VFS syscall helpers — resolve fd through HandleTable and dispatch to VFS
+// ============================================================================
+
+/// Resolve a file descriptor to an OpenFileId using the current process's HandleTable.
+fn resolve_fd(fd: u64) -> Option<crate::vfs::open_file::OpenFileId> {
+    let handle = HandleId::pack(fd as u8, 0);
+
+    let sched = crate::process::SCHEDULER.try_lock()?;
+    let pid = sched.current()?;
+    drop(sched);
+
+    let table = crate::process::TABLE.try_lock()?;
+    let pcb = table.get(pid)?;
+
+    // Try to resolve — we need to match the generation stored in the handle table
+    // For stdio handles (0,1,2) allocated at spawn, generation is 0
+    // We try generation 0 first, then scan active entries
+    if let Ok(cap_id) = pcb.handle_table.resolve(handle) {
+        return Some(crate::vfs::open_file::OpenFileId::new(cap_id as u32));
+    }
+
+    // Fallback: check if slot is active and get its value directly
+    // The handle table uses generation counters, so we need the right generation
+    None
+}
+
+/// SYS_OPEN helper
+fn syscall_open(path: &[u8], flags: u32) -> u64 {
+    use crate::vfs::open_file::OpenFlags;
+    use crate::vfs::ops;
+
+    let open_flags = OpenFlags::from_raw(flags);
+    match ops::vfs_open(path, open_flags) {
+        Ok(open_file_id) => {
+            // Allocate a handle in the current process
+            if let Some(sched) = crate::process::SCHEDULER.try_lock() {
+                if let Some(pid) = sched.current() {
+                    drop(sched);
+                    if let Some(mut table) = crate::process::TABLE.try_lock() {
+                        if let Some(pcb) = table.get_mut(pid) {
+                            match pcb.handle_table.alloc(open_file_id.0 as u64) {
+                                Ok(handle) => return handle.slot() as u64,
+                                Err(_) => {
+                                    // Clean up the open file
+                                    let _ = ops::vfs_close(open_file_id);
+                                    return u64::MAX;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            u64::MAX
+        }
+        Err(_) => u64::MAX,
+    }
+}
+
+/// SYS_READ helper
+fn syscall_read(fd: u64, buf: &mut [u8]) -> u64 {
+    use crate::vfs::ops;
+
+    match resolve_fd(fd) {
+        Some(open_file_id) => {
+            match ops::vfs_read(open_file_id, buf) {
+                Ok(n) => n as u64,
+                Err(_) => u64::MAX,
+            }
+        }
+        None => u64::MAX,
+    }
+}
+
+/// SYS_WRITE VFS path helper (for fds other than 1/2)
+fn syscall_vfs_write(fd: u64, data: &[u8]) -> u64 {
+    use crate::vfs::ops;
+
+    match resolve_fd(fd) {
+        Some(open_file_id) => {
+            // Check if this is a serial inode
+            {
+                let open_files = crate::vfs::OPEN_FILES.lock();
+                if let Some(of) = open_files.get(open_file_id) {
+                    if crate::vfs::stdio::is_serial_inode(of.inode_id) {
+                        drop(open_files);
+                        for &byte in data {
+                            crate::serial::write_byte(byte);
+                        }
+                        return data.len() as u64;
+                    }
+                }
+            }
+            match ops::vfs_write(open_file_id, data) {
+                Ok(n) => n as u64,
+                Err(_) => u64::MAX,
+            }
+        }
+        None => u64::MAX,
+    }
+}
+
+/// SYS_CLOSE helper
+fn syscall_close(fd: u64) -> u64 {
+    use crate::vfs::ops;
+
+    // First resolve the fd to get the open file id
+    let open_file_id = match resolve_fd(fd) {
+        Some(id) => id,
+        None => return u64::MAX,
+    };
+
+    // Release the handle from the process's handle table
+    if let Some(sched) = crate::process::SCHEDULER.try_lock() {
+        if let Some(pid) = sched.current() {
+            drop(sched);
+            if let Some(mut table) = crate::process::TABLE.try_lock() {
+                if let Some(pcb) = table.get_mut(pid) {
+                    let handle = HandleId::pack(fd as u8, 0);
+                    let _ = pcb.handle_table.release(handle);
+                }
+            }
+        }
+    }
+
+    // Close the open file
+    match ops::vfs_close(open_file_id) {
+        Ok(()) => 0,
+        Err(_) => u64::MAX,
+    }
+}
+
+/// SYS_STAT helper
+fn syscall_stat(path: &[u8], stat_buf_addr: u64) -> u64 {
+    use crate::vfs::ops;
+
+    match ops::vfs_stat(path) {
+        Ok(stat) => {
+            // Copy stat to user buffer
+            let stat_ptr = stat_buf_addr as *mut ops::StatBuf;
+            unsafe { *stat_ptr = stat; }
+            0
+        }
+        Err(_) => u64::MAX,
+    }
+}
+
+/// SYS_FSTAT helper
+fn syscall_fstat(fd: u64, stat_buf_addr: u64) -> u64 {
+    use crate::vfs::ops;
+
+    match resolve_fd(fd) {
+        Some(open_file_id) => {
+            match ops::vfs_fstat(open_file_id) {
+                Ok(stat) => {
+                    let stat_ptr = stat_buf_addr as *mut ops::StatBuf;
+                    unsafe { *stat_ptr = stat; }
+                    0
+                }
+                Err(_) => u64::MAX,
+            }
+        }
+        None => u64::MAX,
+    }
+}
+
+/// SYS_GETDENTS helper
+fn syscall_getdents(fd: u64, buf: &mut [u8]) -> u64 {
+    use crate::vfs::ops;
+
+    match resolve_fd(fd) {
+        Some(open_file_id) => {
+            match ops::vfs_readdir(open_file_id, buf) {
+                Ok(n) => n as u64,
+                Err(_) => u64::MAX,
+            }
+        }
+        None => u64::MAX,
     }
 }
 
