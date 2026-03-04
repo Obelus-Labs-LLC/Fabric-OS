@@ -1,37 +1,56 @@
 //! Saved CPU context for interrupt/syscall frames and context switching.
 //!
 //! SavedContext matches the exact stack layout pushed by isr_common in idt.rs:
-//! first GPRs (pushed by stub), then vector+error_code, then CPU-pushed frame.
+//! GPRs are pushed rax-first (highest address) through r15-last (lowest address),
+//! then vector+error_code (pushed by ISR stub), then CPU-pushed frame.
 //! This struct can be overlaid on the stack pointer after all pushes.
 
 #![allow(dead_code)]
 
 /// Saved CPU register context — matches the interrupt/syscall stack frame.
 ///
-/// Layout on the stack (low address → high address):
-///   [RSP points here]
-///   rax, rbx, rcx, rdx, rsi, rdi, rbp, r8..r15  (pushed by isr_common)
-///   vector, error_code                             (pushed by ISR stub)
-///   rip, cs, rflags, rsp, ss                       (pushed by CPU)
+/// Layout on the stack (low address → high address, RSP at bottom):
+///   [RSP+0]   r15   (pushed last  by isr_common)
+///   [RSP+8]   r14
+///   [RSP+16]  r13
+///   [RSP+24]  r12
+///   [RSP+32]  r11
+///   [RSP+40]  r10
+///   [RSP+48]  r9
+///   [RSP+56]  r8
+///   [RSP+64]  rbp
+///   [RSP+72]  rdi
+///   [RSP+80]  rsi
+///   [RSP+88]  rdx
+///   [RSP+96]  rcx
+///   [RSP+104] rbx
+///   [RSP+112] rax   (pushed first by isr_common)
+///   [RSP+120] vector
+///   [RSP+128] error_code
+///   [RSP+136] rip   (pushed by CPU / built by syscall_entry)
+///   [RSP+144] cs
+///   [RSP+152] rflags
+///   [RSP+160] rsp
+///   [RSP+168] ss
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct SavedContext {
-    // Pushed by isr_common (in push order: rax first = lowest address)
-    pub rax: u64,
-    pub rbx: u64,
-    pub rcx: u64,
-    pub rdx: u64,
-    pub rsi: u64,
-    pub rdi: u64,
-    pub rbp: u64,
-    pub r8: u64,
-    pub r9: u64,
-    pub r10: u64,
-    pub r11: u64,
-    pub r12: u64,
-    pub r13: u64,
-    pub r14: u64,
+    // GPRs in stack order: r15 at RSP+0 (pushed last) through rax at RSP+112 (pushed first)
     pub r15: u64,
+    pub r14: u64,
+    pub r13: u64,
+    pub r12: u64,
+    pub r11: u64,
+    pub r10: u64,
+    pub r9: u64,
+    pub r8: u64,
+    pub rbp: u64,
+    pub rdi: u64,
+    pub rsi: u64,
+    pub rdx: u64,
+    pub rcx: u64,
+    pub rbx: u64,
+    pub rax: u64,
     // Pushed by ISR stub
     pub vector: u64,
     pub error_code: u64,
@@ -50,10 +69,10 @@ impl SavedContext {
     /// Create a zeroed context.
     pub const fn zero() -> Self {
         Self {
-            rax: 0, rbx: 0, rcx: 0, rdx: 0,
-            rsi: 0, rdi: 0, rbp: 0,
-            r8: 0, r9: 0, r10: 0, r11: 0,
-            r12: 0, r13: 0, r14: 0, r15: 0,
+            r15: 0, r14: 0, r13: 0, r12: 0,
+            r11: 0, r10: 0, r9: 0, r8: 0,
+            rbp: 0, rdi: 0, rsi: 0, rdx: 0,
+            rcx: 0, rbx: 0, rax: 0,
             vector: 0, error_code: 0,
             rip: 0, cs: 0, rflags: 0, rsp: 0, ss: 0,
         }
@@ -70,10 +89,10 @@ impl SavedContext {
         user_ss: u16,
     ) -> Self {
         Self {
-            rax: 0, rbx: 0, rcx: 0, rdx: 0,
-            rsi: 0, rdi: 0, rbp: 0,
-            r8: 0, r9: 0, r10: 0, r11: 0,
-            r12: 0, r13: 0, r14: 0, r15: 0,
+            r15: 0, r14: 0, r13: 0, r12: 0,
+            r11: 0, r10: 0, r9: 0, r8: 0,
+            rbp: 0, rdi: 0, rsi: 0, rdx: 0,
+            rcx: 0, rbx: 0, rax: 0,
             vector: 0,
             error_code: 0,
             rip: entry_rip,

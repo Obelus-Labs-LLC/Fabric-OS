@@ -309,7 +309,9 @@ fn test_ring3_round_trip() -> OcrbResult {
 }
 
 /// Test 8: Preemptive Switch (weight 10)
-/// Two processes, both accumulate ticks via timer preemption.
+/// Two processes run delay loops then exit. Both accumulate ticks via timer preemption.
+/// The timer handler suspends the test context while processes run, then restores
+/// it after both terminate (via switch_to_idle).
 fn test_preemptive_switch() -> OcrbResult {
     use fabric_types::{ProcessId, ProcessState};
 
@@ -324,8 +326,7 @@ fn test_preemptive_switch() -> OcrbResult {
         }
     }
 
-    // Spawn two user processes with infinite loop code
-    // We need to create address spaces with the loop code mapped in
+    // Create address spaces for two processes
     let mut addr_space1 = match crate::address_space::AddressSpace::create() {
         Ok(a) => a,
         Err(_) => {
@@ -351,27 +352,27 @@ fn test_preemptive_switch() -> OcrbResult {
         }
     };
 
-    // Map the loop code at 0x400000 in each address space
+    // Map the delay-then-exit code at 0x400000 in each address space
     let code_addr = 0x400000u64;
     let code_frame1 = crate::memory::frame::allocate_frame().unwrap();
     let code_frame2 = crate::memory::frame::allocate_frame().unwrap();
 
-    // Write loop code to each frame
+    // Write delay-then-exit code to each frame
     unsafe {
         let ptr1 = code_frame1.to_virt().as_u64() as *mut u8;
         core::ptr::write_bytes(ptr1, 0, crate::memory::PAGE_SIZE);
         core::ptr::copy_nonoverlapping(
-            crate::elf::TEST_CODE_LOOP.as_ptr(),
+            crate::elf::TEST_CODE_DELAY_EXIT.as_ptr(),
             ptr1,
-            crate::elf::TEST_CODE_LOOP.len(),
+            crate::elf::TEST_CODE_DELAY_EXIT.len(),
         );
 
         let ptr2 = code_frame2.to_virt().as_u64() as *mut u8;
         core::ptr::write_bytes(ptr2, 0, crate::memory::PAGE_SIZE);
         core::ptr::copy_nonoverlapping(
-            crate::elf::TEST_CODE_LOOP.as_ptr(),
+            crate::elf::TEST_CODE_DELAY_EXIT.as_ptr(),
             ptr2,
-            crate::elf::TEST_CODE_LOOP.len(),
+            crate::elf::TEST_CODE_DELAY_EXIT.len(),
         );
     }
 
@@ -404,7 +405,7 @@ fn test_preemptive_switch() -> OcrbResult {
 
     // Spawn both processes
     let pid1 = match crate::process::spawn_user(
-        ProcessId::BUTLER, code_addr, user_stack_top, addr_space1, "loop-1",
+        ProcessId::BUTLER, code_addr, user_stack_top, addr_space1, "delay-1",
     ) {
         Ok(p) => p,
         Err(_) => {
@@ -417,7 +418,7 @@ fn test_preemptive_switch() -> OcrbResult {
     };
 
     let pid2 = match crate::process::spawn_user(
-        ProcessId::BUTLER, code_addr, user_stack_top, addr_space2, "loop-2",
+        ProcessId::BUTLER, code_addr, user_stack_top, addr_space2, "delay-2",
     ) {
         Ok(p) => p,
         Err(_) => {
@@ -432,13 +433,30 @@ fn test_preemptive_switch() -> OcrbResult {
     // Record initial tick count
     let ticks_before = crate::x86::idt::tick_count();
 
-    // Enable interrupts and let timer preempt between the two processes
+    // Enable interrupts and let timer preempt between the two processes.
+    // The timer handler will suspend this context (save IDLE_RSP), schedule
+    // processes, and restore this context after both processes terminate.
     crate::x86::apic::start_timer(0x20000);
     crate::x86::enable_interrupts();
 
-    // Wait for some ticks
-    for _ in 0..2_000_000u64 {
+    // Wait for both processes to terminate (or timeout).
+    // The test context will be suspended while processes run, then resumed
+    // via switch_to_idle after both exit.
+    let mut timeout = 0u64;
+    let max_timeout = 50_000_000u64;
+    loop {
+        let state1 = crate::process::get_state(pid1);
+        let state2 = crate::process::get_state(pid2);
+        if state1 == Some(ProcessState::Terminated)
+            && state2 == Some(ProcessState::Terminated)
+        {
+            break;
+        }
+        if timeout >= max_timeout {
+            break;
+        }
         core::hint::spin_loop();
+        timeout += 1;
     }
 
     // Disable interrupts
@@ -447,7 +465,7 @@ fn test_preemptive_switch() -> OcrbResult {
     let ticks_after = crate::x86::idt::tick_count();
     let elapsed_ticks = ticks_after - ticks_before;
 
-    // Both processes should still be alive (they loop forever)
+    // Check results
     let state1 = crate::process::get_state(pid1);
     let state2 = crate::process::get_state(pid2);
 
@@ -459,24 +477,21 @@ fn test_preemptive_switch() -> OcrbResult {
         (t1, t2)
     };
 
-    // Both should be Running or Ready, and timer should have ticked
-    let alive = (state1 == Some(ProcessState::Ready) || state1 == Some(ProcessState::Running))
-        && (state2 == Some(ProcessState::Ready) || state2 == Some(ProcessState::Running));
+    // Both should have terminated and accumulated ticks
+    let both_terminated = state1 == Some(ProcessState::Terminated)
+        && state2 == Some(ProcessState::Terminated);
     let ticks_ok = elapsed_ticks > 0;
     // At least one process should have received timer ticks
     let ran = ticks1 > 0 || ticks2 > 0;
 
-    let passed = alive && ticks_ok && ran;
+    let passed = both_terminated && ticks_ok && ran;
 
-    // Clean up: terminate both processes
+    // Clean up
     {
         let mut table = crate::process::TABLE.lock();
         let mut sched = crate::process::SCHEDULER.lock();
         for pid in [pid1, pid2] {
             sched.dequeue(pid);
-            if let Some(pcb) = table.get_mut(pid) {
-                pcb.state = ProcessState::Terminated;
-            }
             table.remove(pid);
         }
     }
@@ -484,11 +499,11 @@ fn test_preemptive_switch() -> OcrbResult {
     OcrbResult {
         test_name: "Preemptive Switch",
         passed,
-        score: if passed { 100 } else if ticks_ok { 50 } else { 0 },
+        score: if passed { 100 } else if both_terminated { 50 } else { 0 },
         weight: 10,
         details: format!(
-            "elapsed={} ticks, p1_ticks={} p2_ticks={}, alive={}",
-            elapsed_ticks, ticks1, ticks2, alive
+            "elapsed={} ticks, p1_ticks={} p2_ticks={}, terminated={}",
+            elapsed_ticks, ticks1, ticks2, both_terminated
         ),
     }
 }

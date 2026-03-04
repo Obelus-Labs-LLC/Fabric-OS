@@ -17,6 +17,7 @@ use crate::serial_println;
 use super::gdt;
 use super::context::SavedContext;
 
+
 /// IDT gate descriptor (16 bytes).
 #[derive(Clone, Copy)]
 #[repr(C, packed)]
@@ -145,7 +146,7 @@ pub fn init() {
         }
 
         // Save kernel CR3 for idle context restoration
-        KERNEL_CR3 = super::context::read_cr3();
+        core::ptr::write_volatile(core::ptr::addr_of_mut!(KERNEL_CR3), super::context::read_cr3());
     }
 
     load_idt();
@@ -275,6 +276,7 @@ fn page_fault_handler(frame: &SavedContext) {
 // Timer handler with preemptive context switch
 // ============================================================================
 
+
 fn timer_handler(frame: &mut SavedContext) {
     // Increment global tick counter
     TICK_COUNT.fetch_add(1, Ordering::Relaxed);
@@ -309,13 +311,8 @@ fn timer_handler(frame: &mut SavedContext) {
 
         if pcb_state == Some(ProcessState::Terminated) {
             // Current process terminated (e.g., via sys_exit dead loop).
-            // Don't save its context. Pick next process or return to idle.
-            if let Some(next_pid) = sched.schedule_next(&mut table) {
-                switch_to_process(next_pid, &table);
-            } else {
-                // No process ready — return to idle
-                switch_to_idle();
-            }
+            // Don't save its context. Pick next runnable process or return to idle.
+            try_switch_next(&mut sched, &mut table);
         } else {
             // Consume a tick from current process's time slice
             let has_remaining = sched.consume_tick(&mut table);
@@ -329,21 +326,20 @@ fn timer_handler(frame: &mut SavedContext) {
                     }
                 }
 
-                // Pick next process
-                if let Some(next_pid) = sched.schedule_next(&mut table) {
-                    if next_pid != pid {
-                        switch_to_process(next_pid, &table);
-                    }
-                }
+                // Pick next runnable process
+                try_switch_next(&mut sched, &mut table);
             }
         }
     } else {
-        // No current process. Check if one is ready.
-        if let Some(next_pid) = sched.schedule_next(&mut table) {
-            // Save idle context so we can return when all processes complete
-            unsafe { IDLE_RSP = frame_rsp; }
-            switch_to_process(next_pid, &table);
+        // No current process. Save idle RSP only once — prevents dead_loop
+        // from overwriting the original idle/test context.
+        unsafe {
+            if read_idle_rsp() == 0 {
+                write_idle_rsp(frame_rsp);
+            }
         }
+        // Try to schedule a runnable process
+        try_switch_next(&mut sched, &mut table);
     }
 
     drop(table);
@@ -351,11 +347,75 @@ fn timer_handler(frame: &mut SavedContext) {
     super::apic::send_eoi();
 }
 
+/// Try to find and switch to a runnable process (one with a kernel stack).
+/// Skips processes without a kernel stack (e.g., Butler) by deferring their
+/// re-enqueue until after the loop. This prevents a high-priority non-runnable
+/// process from starving lower-priority runnable processes.
+/// If no runnable process is found and IDLE_RSP is saved, switches to idle.
+
+fn try_switch_next(
+    sched: &mut crate::process::scheduler::Scheduler,
+    table: &mut crate::process::ProcessTable,
+) {
+    // Collect PIDs that can't run on hardware (no kernel stack) so we can
+    // re-enqueue them AFTER the loop. Without this, a high-priority process
+    // without a kernel stack (e.g., Butler at Critical) would be picked,
+    // rejected, re-enqueued, and picked again — starving lower-priority
+    // processes that DO have kernel stacks.
+    let mut skipped: [(fabric_types::ProcessId, u8); 8] =
+        [(fabric_types::ProcessId::KERNEL, 0); 8];
+    let mut skipped_count = 0usize;
+
+    for _i in 0..8u32 {
+        match sched.schedule_next(table) {
+            Some(pid) => {
+                if switch_to_process(pid, table) {
+                    // Context switch set up successfully.
+                    // Re-enqueue any skipped processes before returning.
+                    for j in 0..skipped_count {
+                        let (spid, sprio) = skipped[j];
+                        sched.enqueue(spid, sprio);
+                    }
+                    return;
+                }
+                // Process can't run on hardware (no kernel stack).
+                // Remove from current and set Ready, but DON'T re-enqueue yet.
+                let prio = table.get(pid).map(|p| p.effective_priority).unwrap_or(0);
+                sched.dequeue(pid);
+                if let Some(pcb) = table.get_mut(pid) {
+                    pcb.state = ProcessState::Ready;
+                }
+                if skipped_count < 8 {
+                    skipped[skipped_count] = (pid, prio);
+                    skipped_count += 1;
+                }
+            }
+            None => break,
+        }
+    }
+
+    // Re-enqueue all skipped (non-runnable) processes
+    for j in 0..skipped_count {
+        let (spid, sprio) = skipped[j];
+        sched.enqueue(spid, sprio);
+    }
+
+    // No runnable process found — switch to idle if we have a saved context
+    unsafe {
+        if read_idle_rsp() != 0 {
+            switch_to_idle();
+        }
+    }
+}
+
 /// Request a context switch to the given process.
-/// Sets CONTEXT_SWITCH_RSP so isr_common will switch stacks.
-fn switch_to_process(pid: fabric_types::ProcessId, table: &crate::process::ProcessTable) {
+/// Returns true if CONTEXT_SWITCH_RSP was set (process has kernel stack).
+/// Returns false if the process can't be switched to.
+fn switch_to_process(pid: fabric_types::ProcessId, table: &crate::process::ProcessTable) -> bool {
     if let Some(pcb) = table.get(pid) {
-        if pcb.kernel_stack_base.is_some() && pcb.saved_rsp != 0 {
+        let has_kstack = pcb.kernel_stack_base.is_some();
+        let saved = pcb.saved_rsp;
+        if has_kstack && saved != 0 {
             // Update TSS RSP0 for Ring 3→0 transitions
             super::tss::set_rsp0(pcb.kernel_stack_top);
             // Update SYSCALL scratch kernel RSP
@@ -368,25 +428,59 @@ fn switch_to_process(pid: fabric_types::ProcessId, table: &crate::process::Proce
                     super::context::write_cr3(new_cr3);
                 }
             }
-            // Request stack switch — isr_common will pick this up
-            unsafe { CONTEXT_SWITCH_RSP = pcb.saved_rsp; }
+            // Request stack switch — isr_common will pick this up.
+            // Must use volatile write: this variable is read ONLY by assembly
+            // (isr_common), so the compiler could otherwise eliminate the store.
+            unsafe { write_context_switch_rsp(saved); }
+            return true;
         }
     }
+    false
 }
 
 /// Return to the idle/kernel context (no scheduled process).
 fn switch_to_idle() {
     unsafe {
-        if IDLE_RSP != 0 {
+        let idle = read_idle_rsp();
+        if idle != 0 {
             // Restore kernel CR3
             let current_cr3 = super::context::read_cr3();
-            if current_cr3 != KERNEL_CR3 {
-                super::context::write_cr3(KERNEL_CR3);
+            let kernel_cr3 = read_kernel_cr3();
+            if current_cr3 != kernel_cr3 {
+                super::context::write_cr3(kernel_cr3);
             }
-            CONTEXT_SWITCH_RSP = IDLE_RSP;
-            IDLE_RSP = 0;
+            write_context_switch_rsp(idle);
+            write_idle_rsp(0);
         }
     }
+}
+
+// ==========================================================================
+// Volatile accessors for static mut variables read/written by assembly.
+//
+// CONTEXT_SWITCH_RSP, IDLE_RSP, and KERNEL_CR3 are written by Rust code but
+// read only by global_asm! (isr_common). Without volatile access, the compiler
+// may eliminate these writes as "dead stores" since no Rust code reads them.
+// ==========================================================================
+
+#[inline(always)]
+unsafe fn write_context_switch_rsp(val: u64) {
+    core::ptr::write_volatile(core::ptr::addr_of_mut!(CONTEXT_SWITCH_RSP), val);
+}
+
+#[inline(always)]
+unsafe fn read_idle_rsp() -> u64 {
+    core::ptr::read_volatile(core::ptr::addr_of!(IDLE_RSP))
+}
+
+#[inline(always)]
+unsafe fn write_idle_rsp(val: u64) {
+    core::ptr::write_volatile(core::ptr::addr_of_mut!(IDLE_RSP), val);
+}
+
+#[inline(always)]
+unsafe fn read_kernel_cr3() -> u64 {
+    core::ptr::read_volatile(core::ptr::addr_of!(KERNEL_CR3))
 }
 
 // ============================================================================

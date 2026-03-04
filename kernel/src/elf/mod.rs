@@ -217,6 +217,18 @@ pub const TEST_CODE_LOOP: &[u8] = &[
     0xeb, 0xfe, // jmp $ (infinite loop)
 ];
 
+/// Delay loop then sys_exit(0) — for preemptive scheduling tests (23 bytes).
+/// Runs 0x200000 (~2M) iterations of DEC+JNZ (~4ms at 1GHz), then calls SYS_EXIT(0).
+/// The delay ensures the process accumulates timer ticks before exiting.
+pub const TEST_CODE_DELAY_EXIT: &[u8] = &[
+    0x48, 0xc7, 0xc1, 0x00, 0x00, 0x20, 0x00, // mov rcx, 0x200000
+    0x48, 0xff, 0xc9,                           // dec rcx
+    0x75, 0xfb,                                 // jnz -5 (back to dec)
+    0x48, 0xc7, 0xc0, 0x00, 0x00, 0x00, 0x00,  // mov rax, 0 (SYS_EXIT)
+    0x31, 0xff,                                 // xor edi, edi (exit_code=0)
+    0x0f, 0x05,                                 // syscall
+];
+
 /// Minimal ELF64 binary wrapping TEST_CODE_EXIT42.
 /// Entry point: 0x400078 (code at file offset 120 = ELF header + 1 phdr).
 /// Single PT_LOAD segment maps entire file at 0x400000.
