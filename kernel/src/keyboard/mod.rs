@@ -91,18 +91,86 @@ static SCANCODE_TABLE: [u8; 128] = [
     0,   0,   0,   0,   0,   0,   0,   0,    // 0x78-0x7F
 ];
 
-/// Handle a keyboard IRQ — read scancode and translate to ASCII.
+/// Alt key scancode (make = 0x38, break = 0xB8).
+const ALT_MAKE: u8 = 0x38;
+const ALT_BREAK: u8 = 0xB8;
+
+/// Tab make code (0x0F).
+const TAB_MAKE: u8 = 0x0F;
+
+/// F4 make code (0x3E).
+const F4_MAKE: u8 = 0x3E;
+
+/// Track Alt key state. Safe: single-CPU, interrupts disabled during IRQ.
+static mut ALT_HELD: bool = false;
+
+/// Handle a keyboard IRQ — read scancode, route to WM or fallback buffer.
 /// Called from the IDT vector 33 handler.
 pub fn keyboard_irq_handler() {
     let scancode = unsafe { inb(KBD_DATA_PORT) };
 
-    // Ignore break codes (key release, bit 7 set)
-    if scancode & 0x80 != 0 {
+    // Track Alt key state (both make and break)
+    if scancode == ALT_MAKE {
+        unsafe { ALT_HELD = true; }
+        return;
+    }
+    if scancode == ALT_BREAK {
+        unsafe { ALT_HELD = false; }
         return;
     }
 
-    let ascii = SCANCODE_TABLE[scancode as usize];
-    if ascii != 0 {
+    let is_break = scancode & 0x80 != 0;
+    let make_code = scancode & 0x7F;
+
+    // Alt+Tab: cycle window focus
+    if unsafe { ALT_HELD } && !is_break && make_code == TAB_MAKE {
+        if let Some(mut wt) = crate::wm::WINDOW_TABLE.try_lock() {
+            wt.cycle_focus();
+        }
+        return;
+    }
+
+    // Alt+F4: send WindowClose to focused window
+    if unsafe { ALT_HELD } && !is_break && make_code == F4_MAKE {
+        if let Some(mut wt) = crate::wm::WINDOW_TABLE.try_lock() {
+            if let Some(fid) = wt.focused_id {
+                if let Some(win) = wt.get_mut(fid) {
+                    win.event_queue.push(crate::wm::event::WmEvent::WindowClose);
+                }
+            }
+        }
+        return;
+    }
+
+    // Translate scancode to ASCII
+    let ascii = if !is_break {
+        SCANCODE_TABLE[make_code as usize]
+    } else {
+        SCANCODE_TABLE[make_code as usize]
+    };
+
+    // Try to route to focused window's event queue
+    if let Some(mut wt) = crate::wm::WINDOW_TABLE.try_lock() {
+        if let Some(fid) = wt.focused_id {
+            if let Some(win) = wt.get_mut(fid) {
+                if !is_break {
+                    // Key press
+                    if ascii != 0 {
+                        win.event_queue.push(crate::wm::event::WmEvent::KeyPress(ascii));
+                    }
+                } else {
+                    // Key release
+                    if ascii != 0 {
+                        win.event_queue.push(crate::wm::event::WmEvent::KeyRelease(ascii));
+                    }
+                }
+                return;
+            }
+        }
+    }
+
+    // Fallback: no windows or lock contention — use global keyboard buffer
+    if !is_break && ascii != 0 {
         KEYBOARD_BUFFER.lock().push(ascii);
     }
 }

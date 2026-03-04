@@ -24,6 +24,7 @@ mod process;
 mod serial;
 mod vfs;
 mod virtio;
+mod wm;
 mod x86;
 use limine::BaseRevision;
 use limine::request::{MemoryMapRequest, HhdmRequest, ModuleRequest, FramebufferRequest};
@@ -48,7 +49,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v1.0.0 — Phase 15 (TLS/HTTPS)");
+    serial_println!("[FABRIC]   Fabric OS v1.1.0 — Phase 16 (Window Manager)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -495,6 +496,22 @@ extern "C" fn _start() -> ! {
     // OCRB Phase 15 Gate
     serial_println!();
     ocrb::run_phase15_gate();
+
+    // Phase 16: Window Manager Foundation
+    serial_println!();
+    serial_println!("[PHASE16] ============================================");
+    serial_println!("[PHASE16]   Phase 16 — Window Manager Foundation");
+    serial_println!("[PHASE16] ============================================");
+    serial_println!("[PHASE16] Window table: {} slots, z-ordered compositing", wm::MAX_WINDOWS);
+    serial_println!("[PHASE16] Decorations: title bar ({}px), close button, 1px border", wm::TITLE_BAR_HEIGHT);
+    serial_println!("[PHASE16] Taskbar: {}px at bottom, window list with focus highlight", wm::TASKBAR_HEIGHT);
+    serial_println!("[PHASE16] Input: Alt+Tab cycle, Alt+F4 close, per-window event queues");
+    serial_println!("[PHASE16] Syscalls: wm_create(29), wm_destroy(30), wm_blit(31), wm_move_resize(32), wm_focus(33), wm_event(34)");
+    serial_println!("[PHASE16] Phase 16 initialization complete");
+
+    // OCRB Phase 16 Gate
+    serial_println!();
+    ocrb::run_phase16_gate();
 
     // Re-initialize process table for production use (OCRB tests left stale state)
     process::TABLE.lock().clear();

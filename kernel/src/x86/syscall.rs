@@ -559,6 +559,204 @@ extern "C" fn syscall_dispatch(frame: *mut SavedContext) {
             }
         },
 
+        // SYS_WM_CREATE: rdi = x, rsi = y, rdx = width, r10 = height, r8 = title_ptr, r9 = title_len
+        29 => {
+            let x = frame.rdi as i32;
+            let y = frame.rsi as i32;
+            let width = frame.rdx as u32;
+            let height = frame.r10 as u32;
+            let title_ptr = frame.r8;
+            let title_len = frame.r9 as usize;
+
+            // Validate dimensions
+            if width < 1 || width > 2048 || height < 1 || height > 2048 {
+                frame.rax = u64::MAX;
+                return;
+            }
+
+            // Validate title pointer
+            if title_ptr >= 0x0000_8000_0000_0000 || title_len > 256 {
+                frame.rax = u64::MAX;
+                return;
+            }
+
+            let title = if title_len > 0 {
+                let title_slice = unsafe {
+                    core::slice::from_raw_parts(title_ptr as *const u8, title_len)
+                };
+                core::str::from_utf8(title_slice)
+                    .unwrap_or("Untitled")
+                    .into()
+            } else {
+                alloc::string::String::from("Untitled")
+            };
+
+            let owner = get_current_pid().unwrap_or(fabric_types::ProcessId::KERNEL);
+
+            let mut wt = crate::wm::WINDOW_TABLE.lock();
+            match wt.create(owner, title, x, y, width, height) {
+                Some(wid) => frame.rax = wid.0 as u64,
+                None => frame.rax = u64::MAX,
+            }
+        },
+
+        // SYS_WM_DESTROY: rdi = window_id
+        30 => {
+            let wid = crate::wm::WindowId(frame.rdi as u32);
+            let owner = get_current_pid().unwrap_or(fabric_types::ProcessId::KERNEL);
+
+            let mut wt = crate::wm::WINDOW_TABLE.lock();
+            // Verify ownership
+            let authorized = wt.get(wid)
+                .map(|w| w.owner_pid == owner || owner == fabric_types::ProcessId::KERNEL)
+                .unwrap_or(false);
+
+            if authorized && wt.destroy(wid) {
+                frame.rax = 0;
+            } else {
+                frame.rax = u64::MAX;
+            }
+        },
+
+        // SYS_WM_BLIT: rdi = window_id, rsi = buf_ptr, rdx = buf_len
+        31 => {
+            let wid = crate::wm::WindowId(frame.rdi as u32);
+            let buf_ptr = frame.rsi;
+            let buf_len = frame.rdx as usize;
+
+            if buf_ptr >= 0x0000_8000_0000_0000 {
+                frame.rax = u64::MAX;
+                return;
+            }
+
+            let owner = get_current_pid().unwrap_or(fabric_types::ProcessId::KERNEL);
+
+            let mut wt = crate::wm::WINDOW_TABLE.lock();
+            if let Some(win) = wt.get_mut(wid) {
+                if win.owner_pid != owner && owner != fabric_types::ProcessId::KERNEL {
+                    frame.rax = u64::MAX;
+                    return;
+                }
+
+                let expected = (win.width as usize) * (win.height as usize) * 4;
+                if buf_len != expected {
+                    frame.rax = u64::MAX;
+                    return;
+                }
+
+                let src = unsafe {
+                    core::slice::from_raw_parts(buf_ptr as *const u32, expected / 4)
+                };
+
+                // Copy pixels to window surface
+                win.surface.buffer.copy_from_slice(src);
+                win.surface.dirty = true;
+                frame.rax = 0;
+            } else {
+                frame.rax = u64::MAX;
+            }
+        },
+
+        // SYS_WM_MOVE_RESIZE: rdi = window_id, rsi = x, rdx = y, r10 = width, r8 = height
+        32 => {
+            let wid = crate::wm::WindowId(frame.rdi as u32);
+            let new_x = frame.rsi as i32;
+            let new_y = frame.rdx as i32;
+            let new_w = frame.r10 as u32;
+            let new_h = frame.r8 as u32;
+
+            // Validate dimensions
+            if new_w < 1 || new_w > 2048 || new_h < 1 || new_h > 2048 {
+                frame.rax = u64::MAX;
+                return;
+            }
+
+            let owner = get_current_pid().unwrap_or(fabric_types::ProcessId::KERNEL);
+
+            let mut wt = crate::wm::WINDOW_TABLE.lock();
+            if let Some(win) = wt.get_mut(wid) {
+                if win.owner_pid != owner && owner != fabric_types::ProcessId::KERNEL {
+                    frame.rax = u64::MAX;
+                    return;
+                }
+
+                win.x = new_x;
+                win.y = new_y;
+
+                // Reallocate surface if dimensions changed
+                if new_w != win.width || new_h != win.height {
+                    if let Some(new_surface) = crate::display::compositor::Surface::new(new_w, new_h) {
+                        win.surface = new_surface;
+                        win.width = new_w;
+                        win.height = new_h;
+                    } else {
+                        frame.rax = u64::MAX;
+                        return;
+                    }
+                }
+
+                frame.rax = 0;
+            } else {
+                frame.rax = u64::MAX;
+            }
+        },
+
+        // SYS_WM_FOCUS: rdi = window_id
+        33 => {
+            let wid = crate::wm::WindowId(frame.rdi as u32);
+
+            let mut wt = crate::wm::WINDOW_TABLE.lock();
+            if wt.get(wid).is_some() {
+                wt.set_focus(wid);
+                frame.rax = 0;
+            } else {
+                frame.rax = u64::MAX;
+            }
+        },
+
+        // SYS_WM_EVENT: rdi = window_id, rsi = event_buf_ptr, rdx = buf_len
+        34 => {
+            let wid = crate::wm::WindowId(frame.rdi as u32);
+            let evt_buf = frame.rsi;
+            let buf_len = frame.rdx as usize;
+
+            if evt_buf >= 0x0000_8000_0000_0000 {
+                frame.rax = 0; // no event
+                return;
+            }
+
+            let owner = get_current_pid().unwrap_or(fabric_types::ProcessId::KERNEL);
+
+            let mut wt = crate::wm::WINDOW_TABLE.lock();
+            if let Some(win) = wt.get_mut(wid) {
+                if win.owner_pid != owner && owner != fabric_types::ProcessId::KERNEL {
+                    frame.rax = 0;
+                    return;
+                }
+
+                if buf_len < crate::wm::event::SERIALIZED_SIZE {
+                    frame.rax = 0;
+                    return;
+                }
+
+                if let Some(event) = win.event_queue.pop() {
+                    let bytes = event.to_bytes();
+                    let dst = unsafe {
+                        core::slice::from_raw_parts_mut(
+                            evt_buf as *mut u8,
+                            crate::wm::event::SERIALIZED_SIZE,
+                        )
+                    };
+                    dst.copy_from_slice(&bytes);
+                    frame.rax = crate::wm::event::SERIALIZED_SIZE as u64;
+                } else {
+                    frame.rax = 0; // no events pending
+                }
+            } else {
+                frame.rax = 0;
+            }
+        },
+
         _ => {
             serial_println!("[SYSCALL] Unknown syscall {}", syscall_num);
             frame.rax = u64::MAX; // Error
