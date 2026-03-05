@@ -24,6 +24,7 @@ mod process;
 mod serial;
 mod vfs;
 mod virtio;
+mod vmx;
 mod wm;
 mod x86;
 use limine::BaseRevision;
@@ -49,7 +50,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v1.1.0 — Phase 16 (Window Manager)");
+    serial_println!("[FABRIC]   Fabric OS v1.2.0 — Phase 17 (VMX Foundation)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -512,6 +513,24 @@ extern "C" fn _start() -> ! {
     // OCRB Phase 16 Gate
     serial_println!();
     ocrb::run_phase16_gate();
+
+    // Phase 17: VMX Foundation (Linux VM Bridge)
+    serial_println!();
+    serial_println!("[PHASE17] ============================================");
+    serial_println!("[PHASE17]   Phase 17 — VMX Foundation (Linux VM Bridge)");
+    serial_println!("[PHASE17] ============================================");
+
+    vmx::init();
+
+    serial_println!("[PHASE17] VMX mode: {:?}", vmx::capability());
+    serial_println!("[PHASE17] VM table: {} slots, software emulation", vmx::guest::MAX_VMS);
+    serial_println!("[PHASE17] EPT: 4-level guest-physical address translation");
+    serial_println!("[PHASE17] Emulator: HLT, CPUID, NOP, CLI/STI, IN/OUT, MOV, JMP");
+    serial_println!("[PHASE17] Phase 17 initialization complete");
+
+    // OCRB Phase 17 Gate
+    serial_println!();
+    ocrb::run_phase17_gate();
 
     // Re-initialize process table for production use (OCRB tests left stale state)
     process::TABLE.lock().clear();
