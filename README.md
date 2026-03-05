@@ -1366,28 +1366,30 @@ C:/Users/dshon/Projects/
 
 ---
 
-## TECHNICAL DEBT REGISTER
+## TECHNICAL DEBT REGISTER v5.0
 
 Tracked explicitly. Every item has an introduction phase, target resolution phase, and risk level. Items are added during development and closed when resolved.
 
-| ID | Item | Phase Introduced | Phase Target | Risk | Status |
-|----|------|-----------------|-------------|------|--------|
-| TD-001 | XOR gradient placeholder in learning loop — training protocol proven, actual ML math is nonsensical | 5B | 18 | Medium | Acknowledged |
+| ID | Item | Phase | Target | Risk | Status |
+|:---|:---|:---|:---|:---|:---|
+| TD-001 | XOR gradient placeholder in learning loop — training protocol proven, actual ML math is nonsensical | 5B | 27 | Medium | 📋 Planned |
 | TD-002 | No IDT/APIC — no real hardware boot or preemptive scheduling | 5B | 7 | Critical | **Fixed** (Phase 7) |
 | TD-003 | Lock ordering by convention only, no compiler enforcement | 5B | 11+ | High | Acknowledged |
 | TD-004 | Capability revocation BFS is O(n*m) — needs parent→children index for O(n) | 5B | 6 | Medium | **Fixed** (Phase 6) |
-| TD-005 | Simulated models only (256-byte deterministic state machines) — no real inference | 5B | 18 | Medium | Acknowledged |
+| TD-005 | Simulated models only (256-byte deterministic state machines) — no real inference | 5B | 27 | Medium | 📋 Planned |
 | TD-006 | STRESS tests pass in QEMU only — no real hardware testing, no SMP, no NUMA | 5B | 11+ | High | Acknowledged |
 | TD-007 | README claimed ~50K LOC (actual ~12K at Phase 5B) | 5B | — | Low | **Fixed** (585a2d0) |
-| TD-008 | `BTreeMap` in capability store allocates on insert — should be fixed-size slab | 5B | 16 | Medium | Acknowledged |
+| TD-008 | `BTreeMap` in capability store allocates on insert — should be fixed-size slab | 5B | 22 | Medium | 📋 Planned |
 | TD-009 | No `#[must_use]` on critical Result types across codebase | 5B | 6 | Low | **Fixed** (Phase 6) |
-| TD-010 | Buddy allocator free-list uses intrusive pointers in free frames — most fragile `unsafe` code | 0 | 11+ | High | Acknowledged |
+| TD-010 | Buddy allocator free-list uses intrusive pointers in free frames — most fragile `unsafe` code | 0 | 22 | High | 🔄 Ongoing |
 | TD-011 | Serial output only (COM1 0x3F8) — real laptops need framebuffer console | 0 | 10 | Medium | **Fixed** (Phase 10) |
-| TD-012 | No filesystem — model loading, config, logs all require persistent storage | 5B | 8 | High | **Partial** (tmpfs/devfs in Phase 8, FabricFS in Phase 16) |
+| TD-012 | No filesystem — model loading, config, logs all require persistent storage | 5B | 26 | High | 📋 Planned |
 | TD-013 | Network is loopback only — no real NIC, no ARP, no DNS | 9 | 11 | High | Planned |
 | TD-014 | No keyboard/mouse input — user can't interact with display | 10 | 11 | High | Planned |
 | TD-015 | Heap is 16MB — may need expansion for real workloads | 10 | 11+ | Medium | Acknowledged |
 | TD-016 | Nightly Rust compiler ICE workaround (`RUSTFLAGS='-Awarnings'`) | 7 | — | Low | Workaround active |
+| TD-021 | TRB Cycle Bit verification — hardware race condition in xHCI TRB enqueue | 21b | 21b | **Critical** | ⏳ In Progress |
+| TD-022 | HID Boot Protocol test — 8-byte descriptor validation on real hardware | 21b | 21b | **Critical** | ⏳ In Progress |
 
 ---
 
@@ -1395,16 +1397,16 @@ Tracked explicitly. Every item has an introduction phase, target resolution phas
 
 | Category | Count | Status |
 |:---|:---|:---|
-| Kernel phases complete | 11 (0-10) | All SRI 100/100 |
-| Loom phases complete | L0 | Bootstrapped |
-| Phases to Tier 1 | 5 (11-15) | In progress |
-| Phases to completion | 20 | Planned |
-| Lines of code (kernel) | ~20K | Growing |
+| Kernel phases complete | 21 (0-20A + 21a) | All SRI 100/100 |
+| Loom phases complete | L0-L28 | Bootstrapped + JS engine integration |
+| Active technical debt | 18 items (6 fixed, 2 critical) | Tracked |
+| Phases to completion | 36 | Planned through v5.0 |
+| Lines of code (kernel) | ~32K + 2.3K V8 platform | Growing |
 | Strategic differentiation | Dual-mode browser, capability security, user sovereignty | Unique |
 
 ---
 
 *This document is the single source of truth for the Fabric OS — The Estate project. Hand this to any AI assistant chat session to give it full context for implementation work.*
 
-*Last updated: 2026-03-04*
-*Version: 3.0*
+*Last updated: 2026-03-05*
+*Version: 5.0*
