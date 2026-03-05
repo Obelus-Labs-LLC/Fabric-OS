@@ -14,15 +14,17 @@ AI-coordinated microkernel with capability-based security.
 | 16 | Window Manager | ✅ Complete | Overlapping windows, z-ordering, taskbar |
 | L13.5 | V8 Platform Interface | ✅ Complete | `#[no_std]` platform layer (D2-D7) |
 | 21a | USB XHCI Bringup | ✅ Complete | Host controller initialization |
+| TD-021 | TRB Cycle Bit Fix | ✅ Complete | Hardware race condition fix |
+| 21b | USB Root Hub | ✅ Complete | Root hub emulation, hub device interface |
+| TD-008 | BTreeMap → Fixed Slab | ✅ Complete | Alloc-free FixedMap in capability store |
 
 ## Immediate Sprint (This Week)
 
 | Phase | Component | Status | Description |
 |:---|:---|:---|:---|
-| TD-021 | TRB Cycle Bit Verification | ⏳ In Progress | Hardware race condition fix |
-| TD-022 | HID Boot Protocol Test | ⏳ In Progress | 8-byte descriptor validation |
-| 21b | USB Root Hub | ⏳ Next | Root hub emulation, port states |
-| 21c | USB Device Enumeration | 📋 Planned | Mass storage, hub chaining |
+| TD-010 | Buddy Allocator Safety | ⏳ In Progress | Centralized unsafe helpers, typed pointers |
+| 21c | USB Device Enumeration | 📋 Planned | HID keyboard, control transfers (hardware blocked) |
+| TD-022 | HID Boot Protocol Test | 📋 Planned | 8-byte descriptor validation (needs Dell hardware) |
 
 ## Short-Term (Next 4 Weeks)
 
@@ -32,8 +34,6 @@ AI-coordinated microkernel with capability-based security.
 | 23 | GPU Modesetting | 📋 Planned | Intel i915 framebuffer |
 | L13.6 | V8 Cross-Compile | 📋 Planned | Build V8 for x86_64-unknown-none |
 | L13.7 | V8 Link Test | 📋 Planned | Verify V8 + platform interface |
-| TD-008 | BTreeMap → Fixed Slab | 📋 Planned | Alloc-free capability store |
-| TD-010 | Buddy Allocator Safety | 🔄 Ongoing | Intrusive pointer audit |
 
 ## Medium-Term (Months 2-3)
 

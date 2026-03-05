@@ -132,67 +132,51 @@ impl BuddyAllocator {
         frame < MAX_FRAMES && (self.bitmap[frame / 8] & (1 << (frame % 8))) == 0
     }
 
-    // --- Free list operations ---
-    // Each free block stores a next-pointer (phys addr) at its first 8 bytes via HHDM.
+    // --- Free list operations (TD-010) ---
+    //
+    // Intrusive linked list: each free block stores a "next" physical address
+    // in its first 8 bytes, accessed via HHDM. All unsafe pointer operations
+    // are centralized in free_list_read_next / free_list_write_next below.
 
     fn push_free_list(&mut self, frame: usize, order: usize) {
         let addr = frame_to_addr(frame);
-        let virt = PhysAddr::new(addr).to_virt();
-
-        unsafe {
-            let ptr = virt.as_u64() as *mut u64;
-            *ptr = self.free_lists[order];
-        }
+        // SAFETY: addr is page-aligned (from frame_to_addr), mapped via HHDM.
+        unsafe { free_list_write_next(addr, self.free_lists[order]); }
         self.free_lists[order] = addr;
     }
 
     fn pop_free_list(&mut self, order: usize) -> Option<usize> {
         let addr = self.free_lists[order];
-        if addr == 0 {
-            return None;
-        }
-
-        let virt = PhysAddr::new(addr).to_virt();
-        unsafe {
-            self.free_lists[order] = *(virt.as_u64() as *const u64);
-        }
-
+        if addr == 0 { return None; }
+        // SAFETY: addr was stored by push_free_list from a valid frame.
+        self.free_lists[order] = unsafe { free_list_read_next(addr) };
         Some(addr as usize / PAGE_SIZE)
     }
 
     fn remove_from_free_list(&mut self, frame: usize, order: usize) -> bool {
         let target = frame_to_addr(frame);
+        if self.free_lists[order] == 0 { return false; }
 
-        if self.free_lists[order] == 0 {
-            return false;
-        }
-
-        // Check head
+        // Head removal
         if self.free_lists[order] == target {
-            let virt = PhysAddr::new(target).to_virt();
-            unsafe {
-                self.free_lists[order] = *(virt.as_u64() as *const u64);
-            }
+            // SAFETY: target is page-aligned from frame_to_addr.
+            self.free_lists[order] = unsafe { free_list_read_next(target) };
             return true;
         }
 
-        // Walk the list
+        // Walk to find and unlink target
         let mut current = self.free_lists[order];
         while current != 0 {
-            let virt = PhysAddr::new(current).to_virt();
-            let next = unsafe { *(virt.as_u64() as *const u64) };
-
+            // SAFETY: current was stored by push_free_list from a valid frame.
+            let next = unsafe { free_list_read_next(current) };
             if next == target {
-                let target_virt = PhysAddr::new(target).to_virt();
-                let target_next = unsafe { *(target_virt.as_u64() as *const u64) };
-                unsafe {
-                    *(virt.as_u64() as *mut u64) = target_next;
-                }
+                // SAFETY: target/current are valid page-aligned addresses.
+                let target_next = unsafe { free_list_read_next(target) };
+                unsafe { free_list_write_next(current, target_next); }
                 return true;
             }
             current = next;
         }
-
         false
     }
 
@@ -294,6 +278,39 @@ impl BuddyAllocator {
     pub fn total_frames(&self) -> usize {
         self.total_frames
     }
+}
+
+// --- Intrusive free-list pointer helpers (TD-010) ---
+//
+// All unsafe raw-pointer access for the free list is centralized here.
+// Free blocks store a "next" physical address in their first 8 bytes,
+// accessed via HHDM virtual mapping. Page-aligned addresses guarantee
+// 8-byte alignment for the u64 read/write.
+
+/// Read the "next" physical address from a free block's first 8 bytes.
+///
+/// # Safety
+/// `phys_addr` must be a valid, page-aligned physical address with a
+/// corresponding HHDM virtual mapping. The block must currently be on
+/// a free list (not allocated to a caller).
+#[inline]
+unsafe fn free_list_read_next(phys_addr: u64) -> u64 {
+    let virt = PhysAddr::new(phys_addr).to_virt().as_u64();
+    debug_assert!(virt % 8 == 0, "free list pointer not 8-byte aligned: {:#x}", virt);
+    unsafe { *(virt as *const u64) }
+}
+
+/// Write the "next" physical address into a free block's first 8 bytes.
+///
+/// # Safety
+/// `phys_addr` must be a valid, page-aligned physical address with a
+/// corresponding HHDM virtual mapping. The block must currently be on
+/// a free list (not allocated to a caller).
+#[inline]
+unsafe fn free_list_write_next(phys_addr: u64, next: u64) {
+    let virt = PhysAddr::new(phys_addr).to_virt().as_u64();
+    debug_assert!(virt % 8 == 0, "free list pointer not 8-byte aligned: {:#x}", virt);
+    unsafe { *(virt as *mut u64) = next; }
 }
 
 // --- Module-level helpers ---

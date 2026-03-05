@@ -1379,7 +1379,7 @@ Tracked explicitly. Every item has an introduction phase, target resolution phas
 | TD-005 | Simulated models only (256-byte deterministic state machines) — no real inference | 5B | 27 | Medium | 📋 Planned |
 | TD-006 | STRESS tests pass in QEMU only — no real hardware testing, no SMP, no NUMA | 5B | 11+ | High | Acknowledged |
 | TD-007 | README claimed ~50K LOC (actual ~12K at Phase 5B) | 5B | — | Low | **Fixed** (585a2d0) |
-| TD-008 | `BTreeMap` in capability store allocates on insert — should be fixed-size slab | 5B | 22 | Medium | 📋 Planned |
+| TD-008 | `BTreeMap` in capability store allocates on insert — should be fixed-size slab | 5B | 22 | Medium | **Fixed** (2d26b43) |
 | TD-009 | No `#[must_use]` on critical Result types across codebase | 5B | 6 | Low | **Fixed** (Phase 6) |
 | TD-010 | Buddy allocator free-list uses intrusive pointers in free frames — most fragile `unsafe` code | 0 | 22 | High | 🔄 Ongoing |
 | TD-011 | Serial output only (COM1 0x3F8) — real laptops need framebuffer console | 0 | 10 | Medium | **Fixed** (Phase 10) |
@@ -1388,8 +1388,8 @@ Tracked explicitly. Every item has an introduction phase, target resolution phas
 | TD-014 | No keyboard/mouse input — user can't interact with display | 10 | 11 | High | Planned |
 | TD-015 | Heap is 16MB — may need expansion for real workloads | 10 | 11+ | Medium | Acknowledged |
 | TD-016 | Nightly Rust compiler ICE workaround (`RUSTFLAGS='-Awarnings'`) | 7 | — | Low | Workaround active |
-| TD-021 | TRB Cycle Bit verification — hardware race condition in xHCI TRB enqueue | 21b | 21b | **Critical** | ⏳ In Progress |
-| TD-022 | HID Boot Protocol test — 8-byte descriptor validation on real hardware | 21b | 21b | **Critical** | ⏳ In Progress |
+| TD-021 | TRB Cycle Bit verification — hardware race condition in xHCI TRB enqueue | 21b | 21b | **Critical** | **Fixed** (18d16ea) |
+| TD-022 | HID Boot Protocol test — 8-byte descriptor validation on real hardware | 21b | 21c | **Critical** | 📋 Planned |
 
 ---
 
@@ -1397,9 +1397,9 @@ Tracked explicitly. Every item has an introduction phase, target resolution phas
 
 | Category | Count | Status |
 |:---|:---|:---|
-| Kernel phases complete | 21 (0-20A + 21a) | All SRI 100/100 |
+| Kernel phases complete | 23 (0-20A + 21a-b + TD-008/021) | All SRI 100/100 |
 | Loom phases complete | L0-L28 | Bootstrapped + JS engine integration |
-| Active technical debt | 18 items (6 fixed, 2 critical) | Tracked |
+| Active technical debt | 18 items (8 fixed, 1 critical) | Tracked |
 | Phases to completion | 36 | Planned through v5.0 |
 | Lines of code (kernel) | ~32K + 2.3K V8 platform | Growing |
 | Strategic differentiation | Dual-mode browser, capability security, user sovereignty | Unique |
