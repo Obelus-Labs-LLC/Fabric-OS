@@ -17,6 +17,7 @@ AI-coordinated microkernel with capability-based security.
 | TD-021 | TRB Cycle Bit Fix | ✅ Complete | Hardware race condition fix |
 | 21b | USB Root Hub | ✅ Complete | Root hub emulation, hub device interface |
 | TD-008 | BTreeMap → Fixed Slab | ✅ Complete | Alloc-free FixedMap in capability store |
+| TD-003 | Lock Ordering Enforcement | ✅ Complete | OrderedMutex with debug-only ordering checks (643cf47) |
 
 ## Immediate Sprint (This Week)
 

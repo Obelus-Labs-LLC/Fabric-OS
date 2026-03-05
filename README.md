@@ -11,7 +11,7 @@
 
 | | |
 |:---|:---|
-| **Current State** | 21 kernel phases complete (0-20A + 21a), all SRI 100/100. USB xHCI operational. |
+| **Current State** | 24 kernel phases complete (0-20A + 21a-b + TD-008/021/003), all SRI 100/100. Lock ordering enforced. |
 | **Kernel LOC** | ~32K lines Rust + 2.3K V8 platform, zero errors, boots clean |
 | **Key Milestone** | Phase 21a: xHCI USB 3.0 controller operational. L13.5: V8 Platform Interface complete. |
 | **Timeline** | Completion-based, not calendar. |
@@ -1374,7 +1374,7 @@ Tracked explicitly. Every item has an introduction phase, target resolution phas
 |:---|:---|:---|:---|:---|:---|
 | TD-001 | XOR gradient placeholder in learning loop — training protocol proven, actual ML math is nonsensical | 5B | 27 | Medium | 📋 Planned |
 | TD-002 | No IDT/APIC — no real hardware boot or preemptive scheduling | 5B | 7 | Critical | **Fixed** (Phase 7) |
-| TD-003 | Lock ordering by convention only, no compiler enforcement | 5B | 11+ | High | Acknowledged |
+| TD-003 | Lock ordering by convention only, no compiler enforcement | 5B | 11+ | High | **Fixed** (643cf47) |
 | TD-004 | Capability revocation BFS is O(n*m) — needs parent→children index for O(n) | 5B | 6 | Medium | **Fixed** (Phase 6) |
 | TD-005 | Simulated models only (256-byte deterministic state machines) — no real inference | 5B | 27 | Medium | 📋 Planned |
 | TD-006 | STRESS tests pass in QEMU only — no real hardware testing, no SMP, no NUMA | 5B | 11+ | High | Acknowledged |
@@ -1397,9 +1397,9 @@ Tracked explicitly. Every item has an introduction phase, target resolution phas
 
 | Category | Count | Status |
 |:---|:---|:---|
-| Kernel phases complete | 23 (0-20A + 21a-b + TD-008/021) | All SRI 100/100 |
+| Kernel phases complete | 24 (0-20A + 21a-b + TD-008/021/003) | All SRI 100/100 |
 | Loom phases complete | L0-L28 | Bootstrapped + JS engine integration |
-| Active technical debt | 18 items (8 fixed, 1 critical) | Tracked |
+| Active technical debt | 18 items (9 fixed, 1 critical) | Tracked |
 | Phases to completion | 36 | Planned through v5.0 |
 | Lines of code (kernel) | ~32K + 2.3K V8 platform | Growing |
 | Strategic differentiation | Dual-mode browser, capability security, user sovereignty | Unique |
