@@ -17,7 +17,9 @@ mod io;
 mod keyboard;
 mod memory;
 mod network;
+#[path = "stress/mod.rs"]
 mod ocrb;
+mod gaming;
 mod panic;
 mod pci;
 mod process;
@@ -50,7 +52,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v1.2.0 — Phase 17 (VMX Foundation)");
+    serial_println!("[FABRIC]   Fabric OS v1.3.0 — Phase 18 (Gaming & Media)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -531,6 +533,24 @@ extern "C" fn _start() -> ! {
     // STRESS Phase 17 Gate
     serial_println!();
     ocrb::run_phase17_gate();
+
+    // Phase 18: Gaming & Media
+    serial_println!();
+    serial_println!("[PHASE18] ============================================");
+    serial_println!("[PHASE18]   Phase 18 — Gaming & Media");
+    serial_println!("[PHASE18] ============================================");
+
+    gaming::init();
+
+    serial_println!("[PHASE18] Audio: software PCM mixer ({} source slots)", gaming::audio::MAX_SOURCES);
+    serial_println!("[PHASE18] Gamepad: {} virtual slots, keyboard-mapped", gaming::gamepad::MAX_GAMEPADS);
+    serial_println!("[PHASE18] Codecs: RGB/RGBA/BGR pixel formats, RLE compression");
+    serial_println!("[PHASE18] Streaming: video/audio/input protocol, {} client slots", gaming::client::MAX_CLIENTS);
+    serial_println!("[PHASE18] Phase 18 initialization complete");
+
+    // STRESS Phase 18 Gate
+    serial_println!();
+    ocrb::run_phase18_gate();
 
     // Re-initialize process table for production use (STRESS tests left stale state)
     process::TABLE.lock().clear();

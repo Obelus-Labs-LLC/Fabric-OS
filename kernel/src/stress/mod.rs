@@ -18,6 +18,7 @@ pub mod tcp_reliability_gate;
 pub mod tls_gate;
 pub mod wm_gate;
 pub mod vmx_gate;
+pub mod gaming_gate;
 
 use alloc::string::String;
 use crate::serial_println;
@@ -833,6 +834,51 @@ pub fn run_phase17_gate() {
 
     if ori >= 80 {
         serial_println!("[STRESS] GATE: PASS — Phase 17 VMX foundation verified");
+    } else {
+        serial_println!("[STRESS] GATE: FAIL — SRI below 80 threshold");
+    }
+
+    serial_println!("[STRESS] ============================================");
+}
+
+/// Run all Phase 18 STRESS tests and print results
+pub fn run_phase18_gate() {
+    serial_println!("[STRESS] ============================================");
+    serial_println!("[STRESS]   Phase 18 — Gaming & Media Gate");
+    serial_println!("[STRESS] ============================================");
+
+    let results = gaming_gate::run_all_tests();
+
+    let mut weighted_sum: u32 = 0;
+    let mut total_weight: u32 = 0;
+
+    for result in &results {
+        let status = if result.passed { "PASS" } else { "FAIL" };
+        serial_println!(
+            "[STRESS] {} [{:>3}/100] (w:{:>2}) — {}",
+            status,
+            result.score,
+            result.weight,
+            result.test_name
+        );
+        if !result.details.is_empty() {
+            serial_println!("[STRESS]   {}", result.details);
+        }
+        weighted_sum += result.score as u32 * result.weight as u32;
+        total_weight += result.weight as u32;
+    }
+
+    let sri = if total_weight > 0 {
+        weighted_sum / total_weight
+    } else {
+        0
+    };
+
+    serial_println!("[STRESS] ============================================");
+    serial_println!("[STRESS] SRI Score: {}/100", sri);
+
+    if sri >= 80 {
+        serial_println!("[STRESS] GATE: PASS — Phase 18 gaming & media verified");
     } else {
         serial_println!("[STRESS] GATE: FAIL — SRI below 80 threshold");
     }
