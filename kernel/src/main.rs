@@ -664,32 +664,39 @@ extern "C" fn _start() -> ! {
     serial_println!();
     ocrb::run_phase20a_gate();
 
-    // Phase 21a: USB xHCI Host Controller Bringup
+    // Phase 21: USB xHCI Host Controller + Root Hub
     serial_println!();
-    serial_println!("[PHASE21A] ============================================");
-    serial_println!("[PHASE21A]   Phase 21a — xHCI Host Controller Bringup");
-    serial_println!("[PHASE21A] ============================================");
+    serial_println!("[PHASE21] ============================================");
+    serial_println!("[PHASE21]   Phase 21 — xHCI USB Controller + Root Hub");
+    serial_println!("[PHASE21] ============================================");
     {
         match drivers::usb::xhci::probe_pci(&pci_devices) {
             Some(ctrl) => {
                 let status = if ctrl.running { "OPERATIONAL" } else { "NOT RUNNING" };
-                serial_println!("[PHASE21A] xHCI controller: {}", status);
-                serial_println!("[PHASE21A] xHCI version: {}.{}.{}",
+                serial_println!("[PHASE21] xHCI controller: {}", status);
+                serial_println!("[PHASE21] xHCI version: {}.{}.{}",
                     (ctrl.caps.hci_version >> 8) & 0xFF,
                     (ctrl.caps.hci_version >> 4) & 0xF,
                     ctrl.caps.hci_version & 0xF);
-                serial_println!("[PHASE21A] Ports: {} max, Slots: {} max",
+                serial_println!("[PHASE21] Ports: {} max, Slots: {} max",
                     ctrl.caps.max_ports, ctrl.caps.max_slots);
                 if ctrl.running {
-                    serial_println!("[PHASE21A] Target reached: USBSTS.HCH=0, CNR=0");
+                    serial_println!("[PHASE21] Target: USBSTS.HCH=0, CNR=0 — reached");
+                }
+                // Phase 21b: Root Hub status
+                if let Some(ref rh) = ctrl.root_hub {
+                    serial_println!("[PHASE21] Root Hub: {} USB2 + {} USB3 ports",
+                        rh.usb2_port_count, rh.usb3_port_count);
+                    serial_println!("[PHASE21] Connected devices: {}", ctrl.connected_ports);
+                    rh.log_connected_devices();
                 }
             }
             None => {
-                serial_println!("[PHASE21A] No xHCI controller initialized (may not be present)");
+                serial_println!("[PHASE21] No xHCI controller initialized (may not be present)");
             }
         }
     }
-    serial_println!("[PHASE21A] Phase 21a initialization complete");
+    serial_println!("[PHASE21] Phase 21 initialization complete");
 
     // Re-initialize process table for production use (STRESS tests left stale state)
     process::TABLE.lock().clear();

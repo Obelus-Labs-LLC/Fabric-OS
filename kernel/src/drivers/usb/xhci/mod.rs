@@ -1,7 +1,8 @@
-//! xHCI Host Controller Driver — Phase 21a.
+//! xHCI Host Controller Driver — Phase 21a/21b.
 //!
 //! XhciController orchestrates full xHCI initialization:
 //! PCI detection → BAR0 mapping → hardware reset → ring setup → operational state.
+//! Root hub emulation with USB 2.0/3.0 port routing and state machine.
 //!
 //! Uses the same MMIO/DMA patterns as the e1000e Ethernet driver (Phase 20A).
 
@@ -18,10 +19,13 @@ use crate::memory::{PhysAddr, VirtAddr, PAGE_SIZE, hhdm_offset, page_table::Page
 pub mod regs;
 pub mod context;
 pub mod init;
+pub mod port;
+pub mod hub;
 
 use regs::*;
 use context::TrbRing;
 use init::XhciCapabilities;
+use hub::RootHub;
 
 // ============================================================================
 // XHCI Controller
@@ -55,6 +59,8 @@ pub struct XhciController {
     pub erst_virt: usize,
     /// ERST physical address.
     pub erst_phys: usize,
+    /// Root hub — port management, protocol routing, event handling.
+    pub root_hub: Option<RootHub>,
     /// Number of connected ports detected.
     pub connected_ports: u8,
     /// Whether the controller reached operational state.
@@ -181,14 +187,24 @@ impl XhciController {
         // Step 10: Start controller
         let running = init::start_controller(&mmio, op_base);
 
-        // Step 11: Scan root hub ports
-        init::scan_ports(&mmio, op_base, caps.max_ports);
-
         if running {
             serial_println!("[XHCI] === Controller OPERATIONAL (HCH=0, CNR=0) ===");
         } else {
             serial_println!("[XHCI] WARNING: Controller did not reach operational state");
         }
+
+        // Step 11: Initialize root hub (port scanning + protocol detection)
+        let root_hub = if running {
+            Some(RootHub::init(&mmio, &caps, op_base))
+        } else {
+            // Fallback: basic port scan without root hub
+            init::scan_ports(&mmio, op_base, caps.max_ports);
+            None
+        };
+
+        let connected_ports = root_hub.as_ref()
+            .map(|rh| rh.connected_ports().len() as u8)
+            .unwrap_or(0);
 
         Some(Self {
             mmio,
@@ -202,7 +218,8 @@ impl XhciController {
             dcbaa_phys,
             erst_virt,
             erst_phys,
-            connected_ports: 0,
+            root_hub,
+            connected_ports,
             running,
         })
     }
