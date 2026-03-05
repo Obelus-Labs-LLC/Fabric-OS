@@ -879,45 +879,42 @@ Items from the original README roadmap that were deferred in favor of practical 
 
 **Tier 1 Result:** Loom boots on FabricOS, resolves DNS, establishes TCP, sends HTTP GET to example.com, receives 711-byte response, exits clean.
 
-### TIER 2: SECURE WEB + DESKTOP (Next)
+### TIER 2: SECURE WEB + DESKTOP ✅ COMPLETE
+
+| Phase | Deliverable | Status |
+|:---|:---|:---|
+| **15** | TLS 1.3 (X25519, ChaCha20-Poly1305), HTTPS client | **Done** ORI 100 |
+| **16** | Window Manager Foundation (overlapping windows, z-ordering, taskbar, Alt+Tab) | **Done** ORI 100 |
+
+**Tier 2 Result:** TLS 1.3 handshake, HTTPS over real network. Window manager with overlapping windows, decorations, z-ordering, taskbar, per-window input routing, Alt+Tab/Alt+F4. Loom runs as windowed application with WM syscalls 29-34.
+
+### TIER 3: SYSTEM COMPLETION (FabricOS Feature Complete)
 
 | Phase | Deliverable | Unlocks |
 |:---|:---|:---|
-| **15** | TLS 1.3 (rustls no_std), HTTPS, certificate validation | Secure web pages in Loom |
-| **16** | Text rendering, HTML parsing, readable web content | Usable web browsing |
-| **17** | Window manager, file browser, desktop environment | Traditional desktop feel |
-| **18** | Linux VM bridge (gVisor/Kata), development tools | VS Code, terminal, dev workflow |
-| **19** | Steam Link client, cloud gaming integration | Gaming on FabricOS |
-| **20** | AI marketplace framework, agent SDK | Third-party agents, ecosystem |
+| **16** | Window Manager Foundation | **Done** ✅ |
+| **17** | Linux VM Bridge (gVisor/Kata) — developer tools: VS Code, terminal, Git; container runtime for legacy apps | Developer workflow, Linux app compatibility |
+| **18** | Gaming & Media — Steam Link client, cloud gaming (GeForce Now, Xbox Cloud), basic media playback | Gaming and entertainment on FabricOS |
+| **19** | AI Marketplace & Agent SDK — third-party agent framework, Estate agent monetization, Sentinel security agent (Shannon integration) | Ecosystem growth, revenue |
+| **20** | Advanced Browser (Servo Investigation) — Servo WebView research and prototyping, traditional mode for complex web compatibility, hybrid AI-Native (Loom) + Traditional (Servo), decision: integrate or continue custom engine | Full web compatibility fallback |
 
-**Tier 2 Done When:** Loom renders readable HTTPS pages, desktop environment with taskbar/file browser, development tools via Linux VM, cloud gaming playable.
+**Rationale for Servo deferral:**
+- AI-Native Loom is core differentiator, priority
+- Servo is compatibility fallback, not urgent
+- Linux VM unlocks developers and apps first
+- Gaming and AI marketplace drive user adoption
+- Servo integration complex, deferred until core solid
 
-### TIER 3: BROWSER MATURITY (Loom Feature Complete)
-
-| Phase | Deliverable | Unlocks |
-|:---|:---|:---|
-| **L6** | Layout engine: HTML5 + CSS subset (flexbox, no grid) | Real page rendering |
-| **L7** | JavaScript engine: Boa integration or V8 embed | Interactivity, forms, SPAs |
-| **L8** | Media: video/audio playback (MP4, WebM) | YouTube, streaming |
-| **L9** | AI-native mode: intent parser, planning engine, agent orchestration | Differentiation from Chrome |
-| **L10** | Hardware target, daily driver candidate | Ship it |
-| **A1** | Archivist: audit chain capture + SQLite observation store | Persistent memory foundation |
-| **A2** | Archivist: vector embeddings + progressive disclosure queries | Semantic memory retrieval |
-| **A3** | Archivist: Groundskeeper prediction feed + workspace restore | Context-aware workspace |
-
-**Tier 3 Done When:** Loom handles 80% of browsing. Archivist provides persistent cross-session memory. Traditional mode for compatibility, AI mode for transformation. FabricOS is daily driver for developers and power users.
+**Tier 3 Done When:** Linux VM runs dev tools, gaming playable via cloud streaming, AI marketplace live, Servo decision made. FabricOS is feature-complete desktop OS.
 
 ### TIER 4: SCALE (Post-Completion)
 
-| Target | Description |
-|:---|:---|
-| **ARM64/RISC-V ports** | Apple Silicon, Qualcomm Snapdragon X, RISC-V workstations |
-| **Formal verification** | seL4-level proofs for critical paths |
-| **Enterprise features** | Fleet management, policy enforcement |
-| **Cloud/edge deployment** | FabricOS as container host |
-| **Estate Marketplace** | Third-party agent SDK, 80/20 revenue split |
-| **Council standalone daemon** | Ship governance engine for Linux/Mac/Windows |
-| **Compatibility layers** | Explore Windows/Mac app compatibility |
+| Phase | Deliverable | Description |
+|:---|:---|:---|
+| **21** | Hardware Enablement | ACPI, PCI, USB, NVMe drivers — real laptop/desktop support |
+| **22** | ARM64/RISC-V Ports | Apple Silicon, Qualcomm Snapdragon X, RISC-V workstations |
+| **23** | Enterprise Features | Fleet management, policy enforcement, LDAP/AD integration |
+| **24** | Formal Verification | Kani integration, seL4-level proofs for critical paths |
 
 ### TIER 5: SYSTEM COMPLETION (Post-Phase 20)
 
