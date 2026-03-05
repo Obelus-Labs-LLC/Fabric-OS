@@ -594,7 +594,29 @@ Operational Resilience Index: composite 0-100 score. Must be ≥80 for each phas
 
 ---
 
-## 19. THE ESTATE — AGENT MAP
+## 19. DRIVER ARCHITECTURE
+
+Native drivers, userspace, message bus.
+
+### HAL Contract
+- Drivers run in Ring 3, not kernel
+- MMIO/PIO via capability tokens
+- IRQ delivered as messages
+- DMA buffers allocated by kernel, mapped to driver
+
+### Driver SDK
+- Rust templates for PCI probe, register access
+- IRQ handler boilerplate
+- DMA scatter-gather helpers
+
+### Verification
+- Each driver has STRESS gate
+- Hardware-in-the-loop testing on reference platform
+- Community drivers: self-certification + review
+
+---
+
+## 20. THE ESTATE — AGENT MAP
 
 ### Free Agents (Ship with OS)
 
@@ -674,7 +696,7 @@ Oracle is user-facing and SEPARATE from the kernel AI layer. The kernel AI predi
 
 ---
 
-## 20. PROJECT INTEGRATION MAP
+## 21. PROJECT INTEGRATION MAP
 
 ### Bundled with OS (Free)
 
@@ -706,7 +728,7 @@ Oracle is user-facing and SEPARATE from the kernel AI layer. The kernel AI predi
 
 ---
 
-## 21. MONETIZATION MODEL (Android Model)
+## 22. MONETIZATION MODEL (Android Model)
 
 ### Free Forever (GPL)
 - Fabric OS kernel
@@ -735,7 +757,7 @@ Oracle is user-facing and SEPARATE from the kernel AI layer. The kernel AI predi
 
 ---
 
-## 22. PARALLEL TRACK: THE COUNCIL (Standalone)
+## 23. PARALLEL TRACK: THE COUNCIL (Standalone)
 
 Ship the Council governance engine as a standalone daemon for Linux/Mac/Windows.
 
@@ -745,7 +767,7 @@ Ship the Council governance engine as a standalone daemon for Linux/Mac/Windows.
 
 ---
 
-## 23. SECURITY DEFENSES (COMPLETE LIST)
+## 24. SECURITY DEFENSES (COMPLETE LIST)
 
 From external adversarial security review:
 
@@ -798,7 +820,7 @@ From external adversarial security review:
 
 ---
 
-## 24. WHAT'S BUILT (FOUNDATION)
+## 25. WHAT'S BUILT (FOUNDATION)
 
 ### Kernel (FabricOS) — 15 Phases, SRI 100/100 Each
 
@@ -840,7 +862,7 @@ From external adversarial security review:
 
 ---
 
-## 25. WHAT WAS SKIPPED (DEBT TO PAY)
+## 26. WHAT WAS SKIPPED (DEBT TO PAY)
 
 Items from the original README roadmap that were deferred in favor of practical priorities:
 
@@ -854,7 +876,7 @@ Items from the original README roadmap that were deferred in favor of practical 
 
 ---
 
-## 26. WHAT WAS ADDED (NOT IN ORIGINAL README)
+## 27. WHAT WAS ADDED (NOT IN ORIGINAL README)
 
 | Addition | Rationale | Strategic Value |
 |:---|:---|:---|
@@ -868,7 +890,7 @@ Items from the original README roadmap that were deferred in favor of practical 
 
 ---
 
-## 27. ROADMAP TO COMPLETION
+## 28. ROADMAP TO COMPLETION
 
 ### TIER 1: CORE SYSTEM (Kernel + Loom Integration) ✅ COMPLETE
 
@@ -895,28 +917,43 @@ Items from the original README roadmap that were deferred in favor of practical 
 | Phase | Deliverable | Unlocks |
 |:---|:---|:---|
 | **16** | Window Manager Foundation | **Done** ✅ |
-| **17** | Linux VM Bridge (gVisor/Kata) — developer tools: VS Code, terminal, Git; container runtime for legacy apps | Developer workflow, Linux app compatibility |
-| **18** | Gaming & Media — Steam Link client, cloud gaming (GeForce Now, Xbox Cloud), basic media playback | Gaming and entertainment on FabricOS |
-| **19** | AI Marketplace & Agent SDK — third-party agent framework, Estate agent monetization, Sentinel security agent (Shannon integration) | Ecosystem growth, revenue |
-| **20** | Advanced Browser (Servo Investigation) — Servo WebView research and prototyping, traditional mode for complex web compatibility, hybrid AI-Native (Loom) + Traditional (Servo), decision: integrate or continue custom engine | Full web compatibility fallback |
+| **17** | VMX Foundation — software hypervisor, CPUID/EPT emulation, VM lifecycle | Linux app compatibility via VM bridge |
+| **18** | Gaming & Media — audio mixer, virtual gamepad, streaming protocol, media codecs | **Done** SRI 100 |
 
-**Rationale for Servo deferral:**
-- AI-Native Loom is core differentiator, priority
-- Servo is compatibility fallback, not urgent
-- Linux VM unlocks developers and apps first
-- Gaming and AI marketplace drive user adoption
-- Servo integration complex, deferred until core solid
+### TIER 3B: HARDWARE ENABLEMENT
 
-**Tier 3 Done When:** Linux VM runs dev tools, gaming playable via cloud streaming, AI marketplace live, Servo decision made. FabricOS is feature-complete desktop OS.
+| Phase | Deliverable | Description |
+|:---|:---|:---|
+| **19** | Driver Framework | HAL contract, driver SDK, IRQ routing, MMIO/PIO capabilities |
+| **20** | Intel Ethernet | e1000e native driver — template for all drivers |
+| **21** | GPU Modesetting | Intel i915-equivalent, framebuffer, EDID, hotplug |
+| **22** | NVMe Storage | Native NVMe controller, AHCI fallback |
+| **23** | USB XHCI | Host controller, HID, mass storage, hubs |
+| **24** | Intel WiFi | iwlwifi-equivalent, firmware management |
+
+### TIER 3C: ECOSYSTEM
+
+| Phase | Deliverable | Unlocks |
+|:---|:---|:---|
+| **25** | AI Marketplace & Agent SDK — third-party agent framework, Estate agent monetization, Sentinel security agent (Shannon integration) | Ecosystem growth, revenue |
+| **26** | Advanced Browser (Servo Investigation) — Servo WebView research and prototyping, traditional mode for complex web compatibility, hybrid AI-Native (Loom) + Traditional (Servo), decision: integrate or continue custom engine | Full web compatibility fallback |
+
+**Rationale for driver-first strategy:**
+- Native drivers eliminate VM overhead for hardware access
+- Each driver is a userspace service with capability tokens — microkernel architecture
+- Reference hardware provides repeatable testing
+- Driver marketplace enables community contributions with certification
+- VM passthrough remains fallback for unsupported hardware only
+
+**Tier 3 Done When:** Native drivers boot on reference hardware, gaming subsystem functional, AI marketplace live, Servo decision made. FabricOS is feature-complete desktop OS.
 
 ### TIER 4: SCALE (Post-Completion)
 
 | Phase | Deliverable | Description |
 |:---|:---|:---|
-| **21** | Hardware Enablement | ACPI, PCI, USB, NVMe drivers — real laptop/desktop support |
-| **22** | ARM64/RISC-V Ports | Apple Silicon, Qualcomm Snapdragon X, RISC-V workstations |
-| **23** | Enterprise Features | Fleet management, policy enforcement, LDAP/AD integration |
-| **24** | Formal Verification | Kani integration, seL4-level proofs for critical paths |
+| **27** | ARM64/RISC-V Ports | Apple Silicon, Qualcomm Snapdragon X, RISC-V workstations |
+| **28** | Enterprise Features | Fleet management, policy enforcement, LDAP/AD integration |
+| **29** | Formal Verification | Kani integration, seL4-level proofs for critical paths |
 
 ### TIER 5: SYSTEM COMPLETION (Post-Phase 20)
 
@@ -1026,7 +1063,7 @@ Items from the original README roadmap that were deferred in favor of practical 
 
 ---
 
-## 28. USER EXPERIENCE LAYER
+## 29. USER EXPERIENCE LAYER
 
 ### Desktop Vision
 Traditional desktop familiarity with new architecture underneath. Users see windows, taskbar, file browser — powered by capability-secured microkernel and AI agents.
@@ -1037,7 +1074,7 @@ Traditional desktop familiarity with new architecture underneath. Users see wind
 |:---|:---|:---|:---|
 | **Web Apps** | Loom renders web applications natively | Office 365, Figma, Notion, Google Workspace | Working now (HTTP), HTTPS in Phase 15 |
 | **Cloud Streaming** | Streaming clients for heavy apps and games | Steam Link, GeForce Now, Parsec, Moonlight | Phase 18-19 |
-| **Linux VM Bridge** | gVisor/Kata containers for native Linux tools | VS Code, terminal, GIMP, Blender, Krita | Phase 17 |
+| **Linux VM Bridge** | VMX-based containers for Linux tools (fallback for unsupported hardware) | VS Code, terminal, GIMP, Blender, Krita | Phase 17 |
 | **Long-term** | Compatibility layers for Windows/Mac apps | Explore Wine-style or translation | Post-Tier 3 |
 
 ### AI Marketplace
@@ -1045,20 +1082,20 @@ User-created agents that enhance productivity apps. Estate agents automate workf
 
 ---
 
-## 29. GAMING STRATEGY
+## 30. GAMING STRATEGY
 
 | Tier | Approach | Timeline |
 |:---|:---|:---|
 | **Tier 1: Web Games** | HTML5, WebGPU games via Loom | 6 months (after JS engine) |
 | **Tier 2: Cloud Streaming** | GeForce Now, Xbox Cloud Gaming, Steam Link clients | 6-12 months |
-| **Tier 3: Native via VM** | Linux VM with GPU passthrough for Steam/Proton | 12-24 months |
+| **Tier 3: Native Drivers** | Native GPU + audio drivers for local gaming (Phase 21+) | 12-24 months |
 
 ### Anti-Cheat
-Negotiate with vendors (EasyAntiCheat, BattlEye) for FabricOS support, or sandbox games in Linux VM where anti-cheat sees a familiar environment.
+Negotiate with vendors (EasyAntiCheat, BattlEye) for FabricOS support. VM fallback available for games requiring a familiar Linux/Windows environment.
 
 ---
 
-## 30. PRODUCTIVITY STRATEGY
+## 31. PRODUCTIVITY STRATEGY
 
 | Timeline | Approach | Apps |
 |:---|:---|:---|
@@ -1069,7 +1106,7 @@ Negotiate with vendors (EasyAntiCheat, BattlEye) for FabricOS support, or sandbo
 
 ---
 
-## 31. SOFTWARE ECOSYSTEM
+## 32. SOFTWARE ECOSYSTEM
 
 ### Distribution Model
 Fabric OS is **free and open source** (GPL kernel, MIT/Apache userspace). The OS itself will never cost money. Revenue comes from the premium agent marketplace — same model as Android (free OS, paid apps). All core system tools, drivers, and the Estate's base agent functionality ship with the OS at no cost.
@@ -1167,66 +1204,77 @@ The marketplace is the primary revenue engine. It operates on a curated app-stor
 
 ---
 
-## 32. HARDWARE PLATFORM
+## 33. HARDWARE PLATFORM
 
 ### Current
 QEMU emulation with virtio-net, virtio-gpu framebuffer, PS/2 keyboard.
 
+### Reference Hardware (Locked)
+- **Primary:** ThinkPad X1 Carbon (Intel) OR Framework 13 (Intel)
+- All native drivers validated against reference hardware first
+- Community ports branch from reference, follow certification program
+
 ### Target Platforms
-- **Primary:** x86_64 laptops and desktops
+- **Primary:** x86_64 laptops and desktops (Intel reference)
 - **Secondary:** ARM64 (Apple Silicon, Qualcomm Snapdragon X)
 - **Tertiary:** RISC-V workstations
 
-### Hardware Enablement Roadmap
+### Native Driver Strategy
+FabricOS uses **native userspace drivers** as the primary hardware access model. Each driver runs in Ring 3, communicates via message bus, and holds capability tokens for its MMIO/PIO regions and IRQs. VM passthrough is retained as a fallback for unsupported hardware only.
 
-**Phase A: Core Boot**
-- UEFI handoff to kernel
-- ACPI table parsing (power states, device tree)
-- PCI Express enumeration
-- USB XHCI host controller initialization
-- NVMe/SATA storage controller
+**Phase 19: Driver Framework**
+- HAL contract: drivers in Ring 3, not kernel
+- MMIO/PIO access via capability tokens
+- IRQ delivered as messages on the bus
+- DMA buffers allocated by kernel, mapped to driver address space
+- Driver SDK with Rust templates for PCI probe, register access, IRQ handlers
 
-**Phase B: User Input**
-- USB HID keyboards and mice
-- Touchpad support (I2C/SMBus)
-- Touchscreen digitizers
+**Phase 20: Intel Ethernet (e1000e)**
+- Template native driver — establishes patterns for all subsequent drivers
+- PCI BAR mapping, interrupt coalescing, DMA ring buffers
+- STRESS gate with hardware-in-the-loop testing on reference platform
 
-**Phase C: Graphics**
-- Intel integrated graphics initialization
-- AMD GPU basic modesetting
-- NVIDIA framebuffer (nouveau or proprietary)
-- Hardware cursor, vsync, display hotplug
+**Phase 21: GPU Modesetting**
+- Intel i915-equivalent for reference hardware
+- Framebuffer allocation, EDID parsing, display hotplug
+- KMS-style modesetting API for window manager integration
 
-**Phase D: Connectivity**
-- Intel Ethernet (e1000e, igc)
-- Realtek Ethernet and WiFi
-- Broadcom WiFi
-- Bluetooth HCI
+**Phase 22: NVMe Storage**
+- Native NVMe controller driver
+- AHCI/SATA fallback for older hardware
+- Submission/completion queue management, scatter-gather DMA
 
-**Phase E: Power**
-- Battery status and monitoring
-- CPU frequency scaling
-- Suspend and resume
-- Thermal management
+**Phase 23: USB XHCI**
+- Host controller driver, device enumeration
+- HID class (keyboards, mice, gamepads)
+- Mass storage class, hub support
 
-### Reference Hardware
-Development targets for validation:
-- **Laptop:** ThinkPad X1 Carbon (Intel) or Framework 13 (AMD/Intel)
-- **Desktop:** Standard ATX with Intel/AMD GPU
-- **ARM:** MacBook Air M2/M3 (Asahi Linux reference)
-- **RISC-V:** Milk-V Pioneer or HiFive Unmatched
+**Phase 24: Intel WiFi**
+- iwlwifi-equivalent for reference hardware
+- Firmware management and loading
+- WPA3 integration with TLS subsystem
 
-### Current Gap
-FabricOS requires hardware drivers for real machines. QEMU provides virtio abstractions that match no physical hardware. Each driver is a userspace service communicating via message bus with capability tokens.
+### Driver Marketplace
+| Tier | Description | Cost |
+|:---|:---|:---|
+| **Basic** | Core drivers (Ethernet, storage, USB HID) | Free — ships with OS |
+| **Premium** | Accelerated drivers (GPU compute, firmware-managed WiFi) | Paid — developer revenue share |
+| **Certified** | Tested on reference hardware, STRESS gate verified | Certification badge |
+
+### Community Ports
+- Branch from reference hardware driver
+- Self-certification program with STRESS gate templates
+- Community review before certification badge
+- "Works with FabricOS" program for peripheral vendors
 
 ### Integration Point
-The Estate's Groundskeeper agent monitors hardware sensors and thermal state once drivers are available. Chauffeur manages network policy across WiFi and Ethernet uplinks. Archivist handles NVMe storage with FabricFS semantic indexing.
+The Estate's Groundskeeper agent monitors hardware sensors and thermal state via native drivers. Chauffeur manages network policy across WiFi and Ethernet uplinks. Archivist handles NVMe storage with FabricFS semantic indexing.
 
-**Status:** Hardware drivers are pending. Kernel architecture supports userspace drivers via message bus. Capability model extends to hardware access (each driver holds tokens for its device MMIO regions and IRQs).
+**Status:** Driver framework architecture designed (Phase 19). Kernel supports userspace drivers via message bus. Capability model extends to hardware access (each driver holds tokens for its device MMIO regions and IRQs).
 
 ---
 
-## 33. IMMEDIATE NEXT STEPS
+## 34. IMMEDIATE NEXT STEPS
 
 ### Phase 15: TLS/HTTPS Foundation — COMPLETE
 
@@ -1249,7 +1297,7 @@ The Estate's Groundskeeper agent monitors hardware sensors and thermal state onc
 
 ---
 
-## 34. PITCH PREPARATION
+## 35. PITCH PREPARATION
 
 ### Demo Video Script (3 minutes)
 
@@ -1279,7 +1327,7 @@ The Estate's Groundskeeper agent monitors hardware sensors and thermal state onc
 
 ---
 
-## 35. EXISTING CODE LOCATIONS
+## 36. EXISTING CODE LOCATIONS
 
 ```
 C:/Users/dshon/Projects/
