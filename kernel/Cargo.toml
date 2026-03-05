@@ -1,22 +1,43 @@
 [package]
-name = "fabric-kernel"
+name = "fabricos-kernel"
 version = "0.1.0"
 edition = "2021"
-authors = ["Dshon Smith <admin@obeluslabs.com>"]
+authors = ["FabricOS Team"]
+description = "FabricOS Kernel - Microkernel with V8 Platform support"
+license = "GPL-3.0"
+rust-version = "1.75"
+
+[workspace]
+
+[features]
+default = ["v8-platform"]
+# Enable V8 platform integration
+v8-platform = []
+# Enable when building with real FabricOS kernel (disables stubs)
+fabricos-kernel = []
+# Enable test binary
+test-binary = []
 
 [dependencies]
-limine = "0.5"
-spin = "0.9"
-linked_list_allocator = "0.10"
-fabric-types = { path = "../fabric_types" }
-sha3 = { version = "0.10", default-features = false }
-sha2 = { version = "0.10", default-features = false }
-hmac = { version = "0.12", default-features = false }
+# No std dependencies only - V8 platform uses pure syscalls
+
+[lib]
+name = "fabricos_kernel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "v8_platform_test"
+path = "src/v8_platform/test_main.rs"
+required-features = ["test-binary"]
 
 [profile.dev]
 panic = "abort"
+debug = true
+opt-level = 0
 
 [profile.release]
 panic = "abort"
-opt-level = 2
+opt-level = 3
+codegen-units = 1
 lto = true
+debug = false
