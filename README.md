@@ -14,7 +14,7 @@
 | **Current State** | 17 kernel phases complete (0-16), all ORI 100/100. TLS 1.3 + Window Manager complete. |
 | **Kernel LOC** | ~30K lines Rust, zero warnings, boots clean |
 | **Key Milestone** | Phase 16: Window Manager with overlapping windows, z-ordering, taskbar, Alt+Tab. Desktop environment ready. |
-| **Timeline** | Completion-based, not calendar. Velocity: ~4 days per kernel phase historically. |
+| **Timeline** | Completion-based, not calendar. |
 
 ---
 
@@ -571,9 +571,9 @@ All post-quantum ready:
 
 ---
 
-## 18. OCRB — ORBITAL COMPUTE READINESS BENCHMARK
+## 18. STRESS — SYSTEM THREAT RESILIENCE & EXTREME STRESS SUITE
 
-OCRB becomes Fabric's resilience verification framework. Stress-tests every phase before it ships.
+STRESS is a reliability benchmarking framework designed to evaluate how computational workloads behave when foundational operating assumptions are violated by environmental and systemic constraints. Unlike terrestrial benchmarks—which typically assume continuous power, stable connectivity, and rare environmental disruption—STRESS focuses on resilience and behavioral stability under persistent stress, rather than performance optimization, throughput, or cost efficiency. STRESS provides a reproducible, comparative methodology for observing how systems fail, degrade, contain errors, and recover when exposed to structured environmental pressure. The framework produces a composite metric, the **Operational Resilience Index (ORI)**, representing a system's demonstrated behavioral stability under a defined stress regime.
 
 ### Five Stress Regimes
 1. **CPU Saturation** — all cores pinned at 100%
@@ -590,7 +590,7 @@ OCRB becomes Fabric's resilience verification framework. Stress-tests every phas
 5. **State Consistency** — do capabilities, audit logs, and process states remain consistent?
 
 ### ORI Score
-Orbital Readiness Index: composite 0-100 score. Must be ≥80 for each phase to ship.
+Operational Resilience Index: composite 0-100 score. Must be ≥80 for each phase to ship.
 
 ---
 
@@ -696,7 +696,7 @@ Oracle is user-facing and SEPARATE from the kernel AI layer. The kernel AI predi
 
 ### Integrated into Architecture
 
-**OCRB** → Resilience verification framework (stress-tests every phase)
+**STRESS** → Resilience verification framework (stress-tests every phase)
 **ACS** → Human override governance (Layer 3 of governance stack)
 **Aether** → Chauffeur's network policy brain (multi-uplink coordination)
 
@@ -717,8 +717,8 @@ Oracle is user-facing and SEPARATE from the kernel AI layer. The kernel AI predi
 - Butler, Maid, Groundskeeper, Chauffeur, Concierge, Archivist
 - WTP civic data connectors
 - Veritas verification pipeline
-- Guardian financial monitoring
-- OCRB benchmark suite
+- Guardian financial monitoring with paper trading simulation for stocks, forex, commodities, and crypto; backtesting engine with local data import; no external broker integration required
+- STRESS benchmark suite
 
 ### Premium (Proprietary, Subscription)
 - Oracle (predictive analytics)
@@ -747,7 +747,7 @@ Ship the Council governance engine as a standalone daemon for Linux/Mac/Windows.
 
 ## 23. SECURITY DEFENSES (COMPLETE LIST)
 
-From two rounds of adversarial review by Gemini and ChatGPT:
+From external adversarial security review:
 
 ### Capability Security
 1. Unforgeable tokens (cryptographic generation)
@@ -1155,7 +1155,7 @@ The marketplace is the primary revenue engine. It operates on a curated app-stor
 - **Capability tokens:** Marketplace agents request only the permissions they need (camera, network, files, etc.)
 - **Message bus:** Third-party agents communicate with Estate agents via the same typed message bus as system services
 - **Agent orchestration:** Butler can coordinate third-party agents alongside Estate agents in workflows
-- **Quality signals:** Usage metrics, user ratings, and OCRB-style automated testing for published agents
+- **Quality signals:** Usage metrics, user ratings, and STRESS-style automated testing for published agents
 
 ### Ecosystem Metrics (Targets)
 | Metric | Year 1 | Year 3 |
@@ -1235,7 +1235,7 @@ The Estate's Groundskeeper agent monitors hardware sensors and thermal state onc
 | Custom crypto primitives | X25519, ChaCha20-Poly1305, HKDF-SHA256 (bare-metal, no_std) | Done |
 | TLS 1.3 client | ClientHello, ServerHello, key schedule, encrypted records | Done |
 | TLS syscalls (25-28) | tls_connect, tls_send, tls_recv, tls_close | Done |
-| OCRB Phase 15 gate | 10/10 tests, ORI 100/100 | Done |
+| STRESS Phase 15 gate | 10/10 tests, ORI 100/100 | Done |
 | Loom HTTPS support | `https://example.com` works end-to-end |
 
 ### Success Criteria
@@ -1245,7 +1245,7 @@ The Estate's Groundskeeper agent monitors hardware sensors and thermal state onc
 | Loom connects to https://example.com | TLS handshake succeeds in serial log |
 | Certificate validates | No certificate errors |
 | Encrypted response reaches Loom | Response body matches HTTP version |
-| OCRB Phase 15 gate passes | ORI >= 80 |
+| STRESS Phase 15 gate passes | ORI >= 80 |
 
 ---
 
@@ -1272,26 +1272,14 @@ The Estate's Groundskeeper agent monitors hardware sensors and thermal state onc
 - **15 phases** complete — all ORI 100/100
 - **Working HTTP** — Loom fetches from the internet, DNS to display
 - **Capability security** — no root, no superuser, unforgeable tokens
-- **4 days average** per kernel phase — proven velocity
+
 
 ### Narrative
 "We built a ground-up operating system kernel in 25K lines of Rust with zero warnings and a working browser that fetches HTTP over a real network. Every process is capability-secured. AI governance is built in. This is what ChromeOS would be if Google started over today, with macOS polish and AI-native architecture from day one."
 
 ---
 
-## 35. RISK REGISTER
-
-| Risk | Mitigation | Owner |
-|:---|:---|:---|
-| Boa JS engine insufficient | Fallback to V8 embed | VS Code AI |
-| TLS performance poor | Profile, optimize rustls | Claude |
-| GPU acceleration needed sooner | Prioritize wgpu integration | Both |
-| Patent threat from Apple/Amazon | Design around, explicit not conversational | Both |
-| Acquisition interest before complete | Open source protects, buyer licenses | Owner |
-
----
-
-## 36. EXISTING CODE LOCATIONS
+## 35. EXISTING CODE LOCATIONS
 
 ```
 C:/Users/dshon/Projects/
@@ -1313,11 +1301,7 @@ C:/Users/dshon/Projects/
 │   └── backend/              # v5 engine, whale/trap/risk/sentiment/onchain
 ├── Guardian-Desktop-UI/      # Guardian frontend
 ├── Guardian-Mobile/          # Guardian mobile app
-├── WeThePeople-Repo/         # WTP GitHub repo (cleaned up)
-├── Betting_Engine/           # Not bundled (separate project)
-├── HedgeBrain/               # NOT bundled
-├── HB_Futures/               # NOT bundled
-└── HedgeBrain-App/           # NOT bundled
+└── WeThePeople-Repo/         # WTP GitHub repo (cleaned up)
 ```
 
 ---
@@ -1335,7 +1319,7 @@ Tracked explicitly. Every item has an introduction phase, target resolution phas
 | TD-003 | Lock ordering by convention only, no compiler enforcement | 5B | 11+ | High | Acknowledged |
 | TD-004 | Capability revocation BFS is O(n*m) — needs parent→children index for O(n) | 5B | 6 | Medium | **Fixed** (Phase 6) |
 | TD-005 | Simulated models only (256-byte deterministic state machines) — no real inference | 5B | 18 | Medium | Acknowledged |
-| TD-006 | OCRB tests pass in QEMU only — no real hardware testing, no SMP, no NUMA | 5B | 11+ | High | Acknowledged |
+| TD-006 | STRESS tests pass in QEMU only — no real hardware testing, no SMP, no NUMA | 5B | 11+ | High | Acknowledged |
 | TD-007 | README claimed ~50K LOC (actual ~12K at Phase 5B) | 5B | — | Low | **Fixed** (585a2d0) |
 | TD-008 | `BTreeMap` in capability store allocates on insert — should be fixed-size slab | 5B | 16 | Medium | Acknowledged |
 | TD-009 | No `#[must_use]` on critical Result types across codebase | 5B | 6 | Low | **Fixed** (Phase 6) |
