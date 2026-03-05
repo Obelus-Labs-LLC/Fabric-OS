@@ -2,7 +2,7 @@
 //!
 //! Minimal decoder handling: HLT, CPUID, NOP, CLI, STI, IN/OUT imm8,
 //! MOV reg,imm (with REX.W), JMP rel8, RET. Enough to run small guest
-//! code blobs for OCRB testing.
+//! code blobs for STRESS testing.
 
 #![allow(dead_code)]
 

@@ -128,7 +128,7 @@ impl GovernanceEngine {
         current_hash == self.constitution_hash
     }
 
-    /// Clear all state (for testing between OCRB tests).
+    /// Clear all state (for testing between STRESS tests).
     pub fn clear(&mut self) {
         self.safety.reset();
         self.acs.reset();

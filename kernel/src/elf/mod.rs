@@ -3,7 +3,7 @@
 //! Phase 7C: Loads PT_LOAD segments from ELF64 executables, mapping pages via
 //! `AddressSpace::map_user_page()`. Returns the entry point address.
 //!
-//! Includes embedded test binaries for OCRB verification.
+//! Includes embedded test binaries for STRESS verification.
 
 #![allow(dead_code)]
 

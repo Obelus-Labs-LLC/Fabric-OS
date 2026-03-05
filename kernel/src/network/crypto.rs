@@ -808,7 +808,7 @@ pub fn tls13_derive_secret(
 }
 
 // ============================================================================
-// Tests (called from OCRB gate)
+// Tests (called from STRESS gate)
 // ============================================================================
 
 /// Test X25519 with RFC 7748 test vectors.

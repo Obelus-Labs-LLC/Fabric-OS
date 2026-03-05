@@ -280,7 +280,7 @@ pub fn dispatch_pending() {
 }
 
 /// Process pending messages for a single driver by resource ID.
-/// Used in OCRB tests for targeted dispatch.
+/// Used in STRESS tests for targeted dispatch.
 pub fn dispatch_one(resource_id: ResourceId) {
     let (res_key, pid) = {
         let reg = REGISTRY.lock();

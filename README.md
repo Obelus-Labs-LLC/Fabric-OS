@@ -11,7 +11,7 @@
 
 | | |
 |:---|:---|
-| **Current State** | 17 kernel phases complete (0-16), all ORI 100/100. TLS 1.3 + Window Manager complete. |
+| **Current State** | 17 kernel phases complete (0-16), all SRI 100/100. TLS 1.3 + Window Manager complete. |
 | **Kernel LOC** | ~30K lines Rust, zero warnings, boots clean |
 | **Key Milestone** | Phase 16: Window Manager with overlapping windows, z-ordering, taskbar, Alt+Tab. Desktop environment ready. |
 | **Timeline** | Completion-based, not calendar. |
@@ -573,7 +573,7 @@ All post-quantum ready:
 
 ## 18. STRESS — SYSTEM THREAT RESILIENCE & EXTREME STRESS SUITE
 
-STRESS is a reliability benchmarking framework designed to evaluate how computational workloads behave when foundational operating assumptions are violated by environmental and systemic constraints. Unlike terrestrial benchmarks—which typically assume continuous power, stable connectivity, and rare environmental disruption—STRESS focuses on resilience and behavioral stability under persistent stress, rather than performance optimization, throughput, or cost efficiency. STRESS provides a reproducible, comparative methodology for observing how systems fail, degrade, contain errors, and recover when exposed to structured environmental pressure. The framework produces a composite metric, the **Operational Resilience Index (ORI)**, representing a system's demonstrated behavioral stability under a defined stress regime.
+STRESS is a reliability benchmarking framework designed to evaluate how computational workloads behave when foundational operating assumptions are violated by environmental and systemic constraints. Unlike terrestrial benchmarks—which typically assume continuous power, stable connectivity, and rare environmental disruption—STRESS focuses on resilience and behavioral stability under persistent stress, rather than performance optimization, throughput, or cost efficiency. STRESS provides a reproducible, comparative methodology for observing how systems fail, degrade, contain errors, and recover when exposed to structured environmental pressure. The framework produces a composite metric, the **Stress Resilience Index (SRI)**, representing a system's demonstrated behavioral stability under a defined stress regime.
 
 ### Five Stress Regimes
 1. **CPU Saturation** — all cores pinned at 100%
@@ -589,7 +589,7 @@ STRESS is a reliability benchmarking framework designed to evaluate how computat
 4. **Recovery Time** — how fast does the system return to baseline?
 5. **State Consistency** — do capabilities, audit logs, and process states remain consistent?
 
-### ORI Score
+### SRI Score
 Operational Resilience Index: composite 0-100 score. Must be ≥80 for each phase to ship.
 
 ---
@@ -800,7 +800,7 @@ From external adversarial security review:
 
 ## 24. WHAT'S BUILT (FOUNDATION)
 
-### Kernel (FabricOS) — 15 Phases, ORI 100/100 Each
+### Kernel (FabricOS) — 15 Phases, SRI 100/100 Each
 
 | Phase | Deliverable | Strategic Value |
 |:---|:---|:---|
@@ -874,10 +874,10 @@ Items from the original README roadmap that were deferred in favor of practical 
 
 | Phase | Deliverable | Status |
 |:---|:---|:---|
-| **11** | Real NIC (virtio-net) + ARP + DNS + PS/2 keyboard | **Done** ORI 100 |
-| **12** | NIC integration (Ethernet framing, TCP/UDP over wire) | **Done** ORI 100 |
-| **13** | TCP reliability (retransmit, RTO, poll(), DNS cache) | **Done** ORI 100 |
-| **14** | Loom integration: HTTP fetch end-to-end over real network | **Done** ORI 100 |
+| **11** | Real NIC (virtio-net) + ARP + DNS + PS/2 keyboard | **Done** SRI 100 |
+| **12** | NIC integration (Ethernet framing, TCP/UDP over wire) | **Done** SRI 100 |
+| **13** | TCP reliability (retransmit, RTO, poll(), DNS cache) | **Done** SRI 100 |
+| **14** | Loom integration: HTTP fetch end-to-end over real network | **Done** SRI 100 |
 
 **Tier 1 Result:** Loom boots on FabricOS, resolves DNS, establishes TCP, sends HTTP GET to example.com, receives 711-byte response, exits clean.
 
@@ -885,8 +885,8 @@ Items from the original README roadmap that were deferred in favor of practical 
 
 | Phase | Deliverable | Status |
 |:---|:---|:---|
-| **15** | TLS 1.3 (X25519, ChaCha20-Poly1305), HTTPS client | **Done** ORI 100 |
-| **16** | Window Manager Foundation (overlapping windows, z-ordering, taskbar, Alt+Tab) | **Done** ORI 100 |
+| **15** | TLS 1.3 (X25519, ChaCha20-Poly1305), HTTPS client | **Done** SRI 100 |
+| **16** | Window Manager Foundation (overlapping windows, z-ordering, taskbar, Alt+Tab) | **Done** SRI 100 |
 
 **Tier 2 Result:** TLS 1.3 handshake, HTTPS over real network. Window manager with overlapping windows, decorations, z-ordering, taskbar, per-window input routing, Alt+Tab/Alt+F4. Loom runs as windowed application with WM syscalls 29-34.
 
@@ -1235,7 +1235,7 @@ The Estate's Groundskeeper agent monitors hardware sensors and thermal state onc
 | Custom crypto primitives | X25519, ChaCha20-Poly1305, HKDF-SHA256 (bare-metal, no_std) | Done |
 | TLS 1.3 client | ClientHello, ServerHello, key schedule, encrypted records | Done |
 | TLS syscalls (25-28) | tls_connect, tls_send, tls_recv, tls_close | Done |
-| STRESS Phase 15 gate | 10/10 tests, ORI 100/100 | Done |
+| STRESS Phase 15 gate | 10/10 tests, SRI 100/100 | Done |
 | Loom HTTPS support | `https://example.com` works end-to-end |
 
 ### Success Criteria
@@ -1245,7 +1245,7 @@ The Estate's Groundskeeper agent monitors hardware sensors and thermal state onc
 | Loom connects to https://example.com | TLS handshake succeeds in serial log |
 | Certificate validates | No certificate errors |
 | Encrypted response reaches Loom | Response body matches HTTP version |
-| STRESS Phase 15 gate passes | ORI >= 80 |
+| STRESS Phase 15 gate passes | SRI >= 80 |
 
 ---
 
@@ -1253,7 +1253,7 @@ The Estate's Groundskeeper agent monitors hardware sensors and thermal state onc
 
 ### Demo Video Script (3 minutes)
 
-1. **0:00-0:30** — Cold boot FabricOS in QEMU. Show serial output: 15 phases, all ORI 100/100.
+1. **0:00-0:30** — Cold boot FabricOS in QEMU. Show serial output: 15 phases, all SRI 100/100.
 2. **0:30-1:00** — Loom launches. DNS resolves. TCP handshake. HTTP response. Show the pipeline.
 3. **1:00-1:30** — Architecture slide: capability security, message bus, AI governance. "No root, no superuser."
 4. **1:30-2:00** — Roadmap: TLS next, then desktop, then daily driver. Show the velocity (25K LOC in weeks).
@@ -1269,7 +1269,7 @@ The Estate's Groundskeeper agent monitors hardware sensors and thermal state onc
 
 ### Key Metrics
 - **25K LOC** Rust kernel — zero warnings, boots clean
-- **15 phases** complete — all ORI 100/100
+- **15 phases** complete — all SRI 100/100
 - **Working HTTP** — Loom fetches from the internet, DNS to display
 - **Capability security** — no root, no superuser, unforgeable tokens
 
@@ -1337,7 +1337,7 @@ Tracked explicitly. Every item has an introduction phase, target resolution phas
 
 | Category | Count | Status |
 |:---|:---|:---|
-| Kernel phases complete | 11 (0-10) | All ORI 100/100 |
+| Kernel phases complete | 11 (0-10) | All SRI 100/100 |
 | Loom phases complete | L0 | Bootstrapped |
 | Phases to Tier 1 | 5 (11-15) | In progress |
 | Phases to completion | 20 | Planned |

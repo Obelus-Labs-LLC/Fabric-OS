@@ -169,7 +169,7 @@ fn load_idt() {
     }
 }
 
-/// Get reference to IDT entries (for OCRB testing).
+/// Get reference to IDT entries (for STRESS testing).
 pub fn raw_entries() -> &'static [IdtEntry; 256] {
     unsafe { &IDT }
 }

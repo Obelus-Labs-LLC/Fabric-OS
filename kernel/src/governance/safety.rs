@@ -247,7 +247,7 @@ impl SafetyStateMachine {
         self.transition_to(state, current_tick);
     }
 
-    /// Reset to Normal (for testing between OCRB tests).
+    /// Reset to Normal (for testing between STRESS tests).
     pub fn reset(&mut self) {
         self.state = SafetyState::Normal;
         self.state_entered_tick = 0;

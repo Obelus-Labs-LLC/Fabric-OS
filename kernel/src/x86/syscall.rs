@@ -90,22 +90,22 @@ pub fn set_kernel_rsp(kernel_stack_top: u64) {
     }
 }
 
-/// Read EFER MSR (for OCRB testing).
+/// Read EFER MSR (for STRESS testing).
 pub fn read_efer() -> u64 {
     unsafe { rdmsr(IA32_EFER) }
 }
 
-/// Read STAR MSR (for OCRB testing).
+/// Read STAR MSR (for STRESS testing).
 pub fn read_star() -> u64 {
     unsafe { rdmsr(IA32_STAR) }
 }
 
-/// Read LSTAR MSR (for OCRB testing).
+/// Read LSTAR MSR (for STRESS testing).
 pub fn read_lstar() -> u64 {
     unsafe { rdmsr(IA32_LSTAR) }
 }
 
-/// Read FMASK MSR (for OCRB testing).
+/// Read FMASK MSR (for STRESS testing).
 pub fn read_fmask() -> u64 {
     unsafe { rdmsr(IA32_FMASK) }
 }

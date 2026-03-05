@@ -107,7 +107,7 @@ impl AcsStateMachine {
         self.transition_to(state, current_tick);
     }
 
-    /// Reset to Active (for testing between OCRB tests).
+    /// Reset to Active (for testing between STRESS tests).
     pub fn reset(&mut self) {
         self.state = AcsState::Active;
         self.last_heartbeat_tick = 0;

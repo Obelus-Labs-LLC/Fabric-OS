@@ -89,17 +89,17 @@ pub fn set_rsp0(kernel_stack_top: u64) {
     }
 }
 
-/// Get current RSP0 value (for OCRB testing).
+/// Get current RSP0 value (for STRESS testing).
 pub fn get_rsp0() -> u64 {
     unsafe { TSS.rsp0 }
 }
 
-/// Get IST1 value (for OCRB testing).
+/// Get IST1 value (for STRESS testing).
 pub fn get_ist1() -> u64 {
     unsafe { TSS.ist[0] }
 }
 
-/// Get a pointer to the TSS (for OCRB testing).
+/// Get a pointer to the TSS (for STRESS testing).
 pub fn tss_address() -> u64 {
     unsafe { &TSS as *const TaskStateSegment as u64 }
 }

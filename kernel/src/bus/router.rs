@@ -415,7 +415,7 @@ impl BusRouter {
         self.inboxes.contains_key(&pid.0)
     }
 
-    /// Clear all state (for testing between OCRB tests).
+    /// Clear all state (for testing between STRESS tests).
     pub fn clear(&mut self) {
         self.inboxes.clear();
         self.arena.clear();

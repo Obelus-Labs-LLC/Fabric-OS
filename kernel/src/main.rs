@@ -129,7 +129,7 @@ extern "C" fn _start() -> ! {
     memory::heap::init();
     heap_self_test();
 
-    // OCRB Memory Stress Gate
+    // STRESS Memory Stress Gate
     serial_println!();
     ocrb::run_phase0_gate();
 
@@ -138,7 +138,7 @@ extern "C" fn _start() -> ! {
     capability::init();
     capability_self_test();
 
-    // OCRB Capability Storm Gate
+    // STRESS Capability Storm Gate
     serial_println!();
     ocrb::run_phase1_gate();
 
@@ -147,7 +147,7 @@ extern "C" fn _start() -> ! {
     bus::init();
     bus_self_test();
 
-    // OCRB Bus Byzantine + Flood Gate
+    // STRESS Bus Byzantine + Flood Gate
     serial_println!();
     ocrb::run_phase2_gate();
 
@@ -156,12 +156,12 @@ extern "C" fn _start() -> ! {
     process::init();
     process_self_test();
 
-    // OCRB Process + Scheduler Storm Gate
+    // STRESS Process + Scheduler Storm Gate
     serial_println!();
     ocrb::run_phase3_gate();
 
     // Phase 4: Userspace Drivers + HAL
-    // Clean up Phase 3 OCRB state before HAL init
+    // Clean up Phase 3 STRESS state before HAL init
     process::TABLE.lock().clear();
     process::SCHEDULER.lock().clear();
     bus::BUS.lock().clear();
@@ -172,12 +172,12 @@ extern "C" fn _start() -> ! {
     hal::init();
     driver_self_test();
 
-    // OCRB Driver Isolation Gate
+    // STRESS Driver Isolation Gate
     serial_println!();
     ocrb::run_phase4_gate();
 
     // Phase 5A: Deterministic Governance
-    // Clean up Phase 4 OCRB state
+    // Clean up Phase 4 STRESS state
     process::TABLE.lock().clear();
     process::SCHEDULER.lock().clear();
     bus::BUS.lock().clear();
@@ -192,12 +192,12 @@ extern "C" fn _start() -> ! {
     governance::wp_protect::wp_enable();
     serial_println!("[GOV] CR0.WP enabled — constitution hardware-protected");
 
-    // OCRB Governance Gate
+    // STRESS Governance Gate
     serial_println!();
     ocrb::run_phase5a_gate();
 
     // Phase 5B: Adaptive Governance (AI Council)
-    // Clean up Phase 5A OCRB state
+    // Clean up Phase 5A STRESS state
     governance::GOVERNANCE.lock().clear();
     process::TABLE.lock().clear();
     process::SCHEDULER.lock().clear();
@@ -210,12 +210,12 @@ extern "C" fn _start() -> ! {
     council::init();
     council_self_test();
 
-    // OCRB Council Gate
+    // STRESS Council Gate
     serial_println!();
     ocrb::run_phase5b_gate();
 
     // Phase 6: Per-Process Address Spaces + Handle ABI
-    // Clean up Phase 5B OCRB state
+    // Clean up Phase 5B STRESS state
     governance::GOVERNANCE.lock().clear();
     council::COUNCIL.lock().clear();
     process::TABLE.lock().clear();
@@ -237,12 +237,12 @@ extern "C" fn _start() -> ! {
     butler_state::init();
     phase6_self_test();
 
-    // OCRB Phase 6 Gate
+    // STRESS Phase 6 Gate
     serial_println!();
     ocrb::run_phase6_gate();
 
     // Phase 7: Hardware Interrupts + Userspace Execution
-    // Clean up Phase 6 OCRB state
+    // Clean up Phase 6 STRESS state
     governance::GOVERNANCE.lock().clear();
     council::COUNCIL.lock().clear();
     process::TABLE.lock().clear();
@@ -285,12 +285,12 @@ extern "C" fn _start() -> ! {
 
     phase7_self_test();
 
-    // OCRB Phase 7 Gate
+    // STRESS Phase 7 Gate
     serial_println!();
     ocrb::run_phase7_gate();
 
     // Phase 8: VFS + RAM Filesystem + Initramfs
-    // Clean up Phase 7 OCRB state
+    // Clean up Phase 7 STRESS state
     governance::GOVERNANCE.lock().clear();
     council::COUNCIL.lock().clear();
     process::TABLE.lock().clear();
@@ -328,7 +328,7 @@ extern "C" fn _start() -> ! {
 
     phase8_self_test();
 
-    // OCRB Phase 8 Gate
+    // STRESS Phase 8 Gate
     serial_println!();
     ocrb::run_phase8_gate();
 
@@ -343,7 +343,7 @@ extern "C" fn _start() -> ! {
 
     phase9_self_test();
 
-    // OCRB Phase 9 Gate
+    // STRESS Phase 9 Gate
     serial_println!();
     ocrb::run_phase9_gate();
 
@@ -376,7 +376,7 @@ extern "C" fn _start() -> ! {
 
     phase10_self_test();
 
-    // OCRB Phase 10 Gate
+    // STRESS Phase 10 Gate
     serial_println!();
     ocrb::run_phase10_gate();
 
@@ -419,7 +419,7 @@ extern "C" fn _start() -> ! {
 
     serial_println!("[PHASE11] Phase 11 initialization complete");
 
-    // OCRB Phase 11 Gate
+    // STRESS Phase 11 Gate
     serial_println!();
     ocrb::run_phase11_gate();
 
@@ -463,7 +463,7 @@ extern "C" fn _start() -> ! {
 
     serial_println!("[PHASE12] Phase 12 initialization complete");
 
-    // OCRB Phase 12 Gate
+    // STRESS Phase 12 Gate
     serial_println!();
     ocrb::run_phase12_gate();
 
@@ -479,7 +479,7 @@ extern "C" fn _start() -> ! {
     serial_println!("[PHASE13] DNS retry: 3 attempts, pseudo-random txn IDs");
     serial_println!("[PHASE13] Phase 13 initialization complete");
 
-    // OCRB Phase 13 Gate
+    // STRESS Phase 13 Gate
     serial_println!();
     ocrb::run_phase13_gate();
 
@@ -494,7 +494,7 @@ extern "C" fn _start() -> ! {
     serial_println!("[PHASE15] Session table: 8 concurrent TLS sessions");
     serial_println!("[PHASE15] Phase 15 initialization complete");
 
-    // OCRB Phase 15 Gate
+    // STRESS Phase 15 Gate
     serial_println!();
     ocrb::run_phase15_gate();
 
@@ -510,7 +510,7 @@ extern "C" fn _start() -> ! {
     serial_println!("[PHASE16] Syscalls: wm_create(29), wm_destroy(30), wm_blit(31), wm_move_resize(32), wm_focus(33), wm_event(34)");
     serial_println!("[PHASE16] Phase 16 initialization complete");
 
-    // OCRB Phase 16 Gate
+    // STRESS Phase 16 Gate
     serial_println!();
     ocrb::run_phase16_gate();
 
@@ -528,11 +528,11 @@ extern "C" fn _start() -> ! {
     serial_println!("[PHASE17] Emulator: HLT, CPUID, NOP, CLI/STI, IN/OUT, MOV, JMP");
     serial_println!("[PHASE17] Phase 17 initialization complete");
 
-    // OCRB Phase 17 Gate
+    // STRESS Phase 17 Gate
     serial_println!();
     ocrb::run_phase17_gate();
 
-    // Re-initialize process table for production use (OCRB tests left stale state)
+    // Re-initialize process table for production use (STRESS tests left stale state)
     process::TABLE.lock().clear();
     process::SCHEDULER.lock().clear();
     bus::BUS.lock().clear();
@@ -809,7 +809,7 @@ fn process_self_test() {
     // Terminate it
     process::terminate(child).expect("terminate test child");
 
-    // Clean up for OCRB
+    // Clean up for STRESS
     process::TABLE.lock().clear();
     process::SCHEDULER.lock().clear();
     bus::BUS.lock().clear();
@@ -1063,7 +1063,7 @@ fn phase9_self_test() {
     {
         let table = crate::network::SOCKETS.lock();
         // Should be empty at init
-        // (count might not be 0 if OCRB tests ran, but the table should be accessible)
+        // (count might not be 0 if STRESS tests ran, but the table should be accessible)
         let _ = table.count();
     }
     serial_println!("[PHASE9] Self-test: socket table accessible — OK");

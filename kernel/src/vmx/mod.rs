@@ -2,7 +2,7 @@
 //!
 //! Phase 17: Software-emulated hypervisor with CPUID detection, VMCS data
 //! structures, EPT page tables, and minimal x86 instruction emulator.
-//! All OCRB tests pass via software emulation (no hardware VMX required).
+//! All STRESS tests pass via software emulation (no hardware VMX required).
 //! Future phases add VMXON/VMLAUNCH for hardware-accelerated guests.
 
 #![allow(dead_code)]

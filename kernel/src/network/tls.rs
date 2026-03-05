@@ -971,7 +971,7 @@ pub enum TlsError {
 }
 
 // ============================================================================
-// Tests (called from OCRB gate)
+// Tests (called from STRESS gate)
 // ============================================================================
 
 /// Test ClientHello builds correctly.

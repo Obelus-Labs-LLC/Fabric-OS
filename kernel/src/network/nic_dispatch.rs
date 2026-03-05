@@ -103,7 +103,7 @@ pub fn transmit_ip(packet: &[u8]) {
     }
 }
 
-/// Static counter for tracking TX packets sent via NIC (for OCRB testing).
+/// Static counter for tracking TX packets sent via NIC (for STRESS testing).
 static NIC_TX_COUNT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 /// Get number of packets transmitted via NIC.

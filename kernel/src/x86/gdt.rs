@@ -168,7 +168,7 @@ pub fn load_tss() {
     serial_println!("[GDT] TSS loaded (selector 0x{:02X})", TSS_SEL);
 }
 
-/// Get a reference to the raw GDT entries (for OCRB testing).
+/// Get a reference to the raw GDT entries (for STRESS testing).
 pub fn raw_entries() -> &'static [u64; GDT_ENTRIES] {
     unsafe { &GDT }
 }
