@@ -11,9 +11,9 @@
 
 | | |
 |:---|:---|
-| **Current State** | 16 kernel phases complete (0-15), all ORI 100/100. TLS 1.3 crypto foundation in place. |
-| **Kernel LOC** | ~27K lines Rust, zero warnings, boots clean |
-| **Key Milestone** | Phase 15: X25519, ChaCha20-Poly1305, TLS 1.3 client, HTTPS syscalls. Crypto stack complete. |
+| **Current State** | 17 kernel phases complete (0-16), all ORI 100/100. TLS 1.3 + Window Manager complete. |
+| **Kernel LOC** | ~30K lines Rust, zero warnings, boots clean |
+| **Key Milestone** | Phase 16: Window Manager with overlapping windows, z-ordering, taskbar, Alt+Tab. Desktop environment ready. |
 | **Timeline** | Completion-based, not calendar. Velocity: ~4 days per kernel phase historically. |
 
 ---
@@ -820,8 +820,10 @@ From two rounds of adversarial review by Gemini and ChatGPT:
 | 12 | NIC integration (ARP, Ethernet, DNS, TCP/UDP over wire) | Real internet |
 | 13 | TCP reliability (retransmit, Jacobson/Karels RTO, poll(), DNS cache) | Reliable networking |
 | 14 | Loom integration (HTTP fetch end-to-end over virtio-net) | **Browser works** |
+| 15 | TLS 1.3 (X25519, ChaCha20-Poly1305, HTTPS client, 4 syscalls) | **Secure web** |
+| 16 | Window Manager (overlapping windows, z-ordering, taskbar, 6 syscalls) | **Desktop environment** |
 
-**Total:** ~25K LOC kernel, zero warnings, boots clean in QEMU with virtio-net.
+**Total:** ~30K LOC kernel, zero warnings, boots clean in QEMU with virtio-net.
 
 ### Browser (Loom) — HTTP Working on FabricOS
 
