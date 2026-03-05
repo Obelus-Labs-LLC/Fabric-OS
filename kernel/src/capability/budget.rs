@@ -3,21 +3,23 @@
 //! Tracks usage counts per capability per time interval. When a capability's
 //! budget is exhausted for the current interval, further uses are rejected
 //! until the interval resets.
+//!
+//! TD-008: Replaced BTreeMap with alloc-free FixedMap.
 
 #![allow(dead_code)]
 
-use alloc::collections::BTreeMap;
 use fabric_types::Budget;
+use super::slab::FixedMap;
 
 /// Per-capability usage tracking: (uses_this_interval, interval_start_tick).
 pub struct BudgetTracker {
-    usage: BTreeMap<u64, (u32, u64)>,
+    usage: FixedMap<(u32, u64)>,
 }
 
 impl BudgetTracker {
     pub const fn new() -> Self {
         Self {
-            usage: BTreeMap::new(),
+            usage: FixedMap::new(),
         }
     }
 
@@ -25,7 +27,7 @@ impl BudgetTracker {
     /// If allowed, increments the usage counter and returns true.
     /// If exhausted, returns false.
     pub fn check_and_consume(&mut self, cap_id: u64, budget: &Budget, current_tick: u64) -> bool {
-        let entry = self.usage.entry(cap_id).or_insert((0, current_tick));
+        let entry = self.usage.get_or_insert(cap_id, (0, current_tick));
 
         // Reset if interval has elapsed
         if current_tick.saturating_sub(entry.1) >= budget.interval_ticks {

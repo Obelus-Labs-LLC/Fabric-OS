@@ -1,30 +1,39 @@
 //! Capability store — the central in-memory registry for all live capability tokens.
 //!
-//! Uses BTreeMap<u64, StoredToken> for O(log n) lookup by ID. Each StoredToken
-//! wraps the wire CapabilityToken with kernel-private fields (HMAC, budget config,
-//! creation tick).
+//! Uses FixedMap<StoredToken> for O(1) amortized lookup by ID (TD-008).
+//! Each StoredToken wraps the wire CapabilityToken with kernel-private fields
+//! (HMAC, budget config, creation tick) and intrusive sibling pointers for
+//! the parent→children relationship.
 //!
 //! Phase 6: Added parent→children index for O(n) cascading revocation (TD-004).
+//! TD-008: Replaced BTreeMap with alloc-free FixedMap + intrusive child list.
 
 #![allow(dead_code)]
 
-use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use fabric_types::{CapabilityToken, CapabilityId, ResourceId, ProcessId, Perm, Budget};
 use crate::capability::hmac_engine;
 use crate::capability::budget::BudgetTracker;
 use crate::capability::nonce::NonceTracker;
+use super::slab::FixedMap;
 
-/// Maximum tokens in the store (prevents unbounded heap growth).
-const MAX_TOKENS: usize = 65536;
+/// Maximum tokens in the store (75% of FixedMap capacity = 12288).
+const MAX_TOKENS: usize = 12288;
 
 /// Kernel-private token wrapper. Extends the wire CapabilityToken with
 /// fields that never leave Ring 0.
+///
+/// Includes intrusive linked-list pointers for parent→children relationships,
+/// eliminating the separate BTreeMap<u64, Vec<u64>> children index.
 pub struct StoredToken {
     pub token: CapabilityToken,
     pub hmac: [u8; 32],
     pub budget: Option<Budget>,
     pub created_at: u64,
+    /// First child capability ID (intrusive linked list head), 0 = no children.
+    pub first_child: u64,
+    /// Next sibling capability ID (intrusive linked list), 0 = end of list.
+    pub next_sibling: u64,
 }
 
 /// Error types for capability operations.
@@ -44,9 +53,7 @@ pub enum CapabilityError {
 
 /// The capability store holding all live tokens and associated tracking state.
 pub struct CapabilityStore {
-    tokens: BTreeMap<u64, StoredToken>,
-    /// Parent → children index for O(n) cascading revocation (TD-004).
-    children: BTreeMap<u64, Vec<u64>>,
+    tokens: FixedMap<StoredToken>,
     next_id: u64,
     budget_tracker: BudgetTracker,
     nonce_tracker: NonceTracker,
@@ -56,8 +63,7 @@ pub struct CapabilityStore {
 impl CapabilityStore {
     pub const fn new() -> Self {
         Self {
-            tokens: BTreeMap::new(),
-            children: BTreeMap::new(),
+            tokens: FixedMap::new(),
             next_id: 1,
             budget_tracker: BudgetTracker::new(),
             nonce_tracker: NonceTracker::new(),
@@ -105,6 +111,8 @@ impl CapabilityStore {
             hmac,
             budget,
             created_at: self.current_tick,
+            first_child: 0,
+            next_sibling: 0,
         });
 
         Ok(CapabilityId::new(id))
@@ -147,6 +155,7 @@ impl CapabilityStore {
         };
 
         let resource = parent.token.resource;
+        let old_first_child = parent.first_child;
         let id = self.alloc_id();
 
         let mut token = CapabilityToken::zeroed();
@@ -161,15 +170,20 @@ impl CapabilityStore {
 
         let hmac = hmac_engine::sign(&token.active_bytes());
 
+        // Insert new child with next_sibling pointing to parent's old first_child
         self.tokens.insert(id, StoredToken {
             token,
             hmac,
             budget,
             created_at: self.current_tick,
+            first_child: 0,
+            next_sibling: old_first_child,
         });
 
-        // TD-004: Maintain parent→children index
-        self.children.entry(parent_id).or_insert_with(Vec::new).push(id);
+        // Update parent's first_child to point to new child (prepend)
+        if let Some(parent) = self.tokens.get_mut(&parent_id) {
+            parent.first_child = id;
+        }
 
         Ok(CapabilityId::new(id))
     }
@@ -222,41 +236,87 @@ impl CapabilityStore {
         Ok(())
     }
 
+    /// Unlink a child from its parent's intrusive child list.
+    fn unlink_child(&mut self, parent_id: u64, child_id: u64) {
+        // Read child's next_sibling before modifying anything
+        let child_next = self.tokens.get(&child_id)
+            .map(|s| s.next_sibling)
+            .unwrap_or(0);
+
+        let parent_first = self.tokens.get(&parent_id)
+            .map(|s| s.first_child)
+            .unwrap_or(0);
+
+        if parent_first == child_id {
+            // Child is head of list — advance parent's first_child
+            if let Some(parent) = self.tokens.get_mut(&parent_id) {
+                parent.first_child = child_next;
+            }
+        } else {
+            // Walk to find predecessor in sibling chain
+            let mut prev_id = parent_first;
+            while prev_id != 0 {
+                let next = self.tokens.get(&prev_id)
+                    .map(|s| s.next_sibling)
+                    .unwrap_or(0);
+                if next == child_id {
+                    if let Some(prev) = self.tokens.get_mut(&prev_id) {
+                        prev.next_sibling = child_next;
+                    }
+                    break;
+                }
+                prev_id = next;
+            }
+        }
+    }
+
+    /// Collect children IDs by walking the intrusive linked list.
+    fn collect_children(&self, parent_id: u64) -> Vec<u64> {
+        let mut children = Vec::new();
+        let mut child_id = self.tokens.get(&parent_id)
+            .map(|s| s.first_child)
+            .unwrap_or(0);
+        while child_id != 0 {
+            children.push(child_id);
+            child_id = self.tokens.get(&child_id)
+                .map(|s| s.next_sibling)
+                .unwrap_or(0);
+        }
+        children
+    }
+
     /// Revoke a token and all its descendants (cascading revocation).
     /// Returns the count of tokens removed.
     ///
-    /// TD-004: Uses parent→children index for O(n) tree walk instead of O(n*m) scan.
+    /// TD-004: Uses intrusive child list for O(n) tree walk.
+    /// TD-008: No separate children BTreeMap — uses first_child/next_sibling.
     #[must_use]
     pub fn revoke(&mut self, token_id: u64) -> Result<usize, CapabilityError> {
-        if !self.tokens.contains_key(&token_id) {
-            return Err(CapabilityError::NotFound);
+        // Get parent ID before we start removing
+        let parent_id = self.tokens.get(&token_id)
+            .ok_or(CapabilityError::NotFound)?
+            .token.delegated_from;
+
+        // Unlink from parent's child list (if delegated)
+        if parent_id != 0 {
+            self.unlink_child(parent_id, token_id);
         }
 
-        // DFS via children index — O(n) where n = number of descendants
+        // DFS via intrusive child list — O(n) where n = number of descendants
         let mut stack: Vec<u64> = Vec::new();
         stack.push(token_id);
         let mut count = 0;
 
         while let Some(id) = stack.pop() {
-            // Push children onto stack before removing
-            if let Some(kids) = self.children.remove(&id) {
-                stack.extend(kids);
-            }
+            // Collect children before removing the token
+            let children = self.collect_children(id);
+            stack.extend(children);
+
             // Remove the token itself
             if self.tokens.remove(&id).is_some() {
                 self.budget_tracker.remove(id);
                 self.nonce_tracker.remove(id);
                 count += 1;
-            }
-        }
-
-        // Remove from parent's children list
-        if let Some(stored) = self.tokens.get(&token_id) {
-            let parent = stored.token.delegated_from;
-            if parent != 0 {
-                if let Some(siblings) = self.children.get_mut(&parent) {
-                    siblings.retain(|&x| x != token_id);
-                }
             }
         }
 
@@ -296,7 +356,6 @@ impl CapabilityStore {
     /// Clear the entire store (for testing).
     pub fn clear(&mut self) {
         self.tokens.clear();
-        self.children.clear();
         self.budget_tracker.clear();
         self.nonce_tracker.clear();
         self.next_id = 1;

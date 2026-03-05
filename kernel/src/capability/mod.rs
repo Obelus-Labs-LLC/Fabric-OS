@@ -17,6 +17,7 @@
 pub mod hmac_engine;
 pub mod nonce;
 pub mod budget;
+pub mod slab;
 pub mod store;
 
 use spin::Mutex;
