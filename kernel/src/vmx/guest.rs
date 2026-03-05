@@ -6,7 +6,7 @@
 
 #![allow(dead_code)]
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use alloc::vec::Vec;
 use crate::memory::{PhysAddr, PAGE_SIZE, hhdm_offset};
 use crate::memory::frame;
@@ -154,7 +154,8 @@ impl VmTable {
 }
 
 /// Global VM table.
-pub static VM_TABLE: Mutex<VmTable> = Mutex::new(VmTable::new());
+pub static VM_TABLE: OrderedMutex<VmTable, { crate::sync::levels::GOVERNANCE }> =
+    OrderedMutex::new(VmTable::new());
 
 impl VirtualMachine {
     /// Load flat binary code into guest physical address 0.

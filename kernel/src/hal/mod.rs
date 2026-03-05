@@ -23,7 +23,7 @@ pub mod pci_bind;
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use fabric_types::{
     DeviceClass, DriverOp, DriverRequest, DriverResponse, DriverStatus,
     Intent, IntentCategory, Priority, EnergyClass,
@@ -35,7 +35,8 @@ use crate::{bus, capability, process, serial_println};
 pub use registry::DriverRegistry;
 
 /// Global driver registry.
-pub static REGISTRY: Mutex<DriverRegistry> = Mutex::new(DriverRegistry::new());
+pub static REGISTRY: OrderedMutex<DriverRegistry, { crate::sync::levels::HAL }> =
+    OrderedMutex::new(DriverRegistry::new());
 
 /// Maximum ticks a single driver dispatch may consume before warning.
 /// This is the Time-Slice Guard — prevents a hung driver from stalling the kernel.

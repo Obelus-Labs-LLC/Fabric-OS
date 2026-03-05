@@ -8,7 +8,7 @@
 extern crate alloc;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use crate::serial_println;
 use super::ethernet::{EthernetFrame, ETHERTYPE_ARP, BROADCAST_MAC};
 
@@ -35,7 +35,8 @@ pub struct ArpPacket {
 }
 
 /// Global ARP table: IPv4 (as [u8;4]) -> MAC address.
-pub static ARP_TABLE: Mutex<BTreeMap<[u8; 4], [u8; 6]>> = Mutex::new(BTreeMap::new());
+pub static ARP_TABLE: OrderedMutex<BTreeMap<[u8; 4], [u8; 6]>, { crate::sync::levels::NETWORK }> =
+    OrderedMutex::new(BTreeMap::new());
 
 impl ArpPacket {
     /// Build an ARP request: "Who has `target_ip`? Tell `sender_ip`."

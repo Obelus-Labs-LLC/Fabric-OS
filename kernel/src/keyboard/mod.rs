@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use crate::io::{inb, outb};
 use crate::serial_println;
 
@@ -68,7 +68,8 @@ impl KeyboardBuffer {
 }
 
 /// Global keyboard buffer.
-pub static KEYBOARD_BUFFER: Mutex<KeyboardBuffer> = Mutex::new(KeyboardBuffer::new());
+pub static KEYBOARD_BUFFER: OrderedMutex<KeyboardBuffer, { crate::sync::levels::INPUT }> =
+    OrderedMutex::new(KeyboardBuffer::new());
 
 /// Scancode set 1 → ASCII lookup table (make codes only, index = scancode).
 /// 0 = no ASCII mapping (special key or unmapped).
@@ -160,9 +161,13 @@ pub fn keyboard_irq_handler() {
 
     // Fallback: no windows or lock contention — use global keyboard buffer.
     // Translate scancode to ASCII for legacy KbRead syscall compatibility.
+    // TD-003: try_lock() in IRQ handler — avoids deadlock if interrupted
+    // while KEYBOARD_BUFFER is held by normal code.
     let ascii = SCANCODE_TABLE[make_code as usize];
     if !is_break && ascii != 0 {
-        KEYBOARD_BUFFER.lock().push(ascii);
+        if let Some(mut buf) = KEYBOARD_BUFFER.try_lock() {
+            buf.push(ascii);
+        }
     }
 }
 

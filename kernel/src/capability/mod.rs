@@ -20,14 +20,15 @@ pub mod budget;
 pub mod slab;
 pub mod store;
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use crate::serial_println;
 
 pub use fabric_types::{CapabilityId, ResourceId, ProcessId, Perm, Budget};
 pub use store::{CapabilityStore, CapabilityError};
 
 /// Global capability store.
-pub static STORE: Mutex<CapabilityStore> = Mutex::new(CapabilityStore::new());
+pub static STORE: OrderedMutex<CapabilityStore, { crate::sync::levels::STORE }> =
+    OrderedMutex::new(CapabilityStore::new());
 
 /// Initialize the capability subsystem. Must be called after heap init.
 pub fn init() {

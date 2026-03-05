@@ -6,7 +6,7 @@
 
 #![allow(dead_code)]
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 
 /// Maximum shared handlers per IRQ vector.
 pub const MAX_SHARED: usize = 4;
@@ -151,4 +151,5 @@ impl IrqRouter {
 static EMPTY_HANDLERS: [IrqHandler; MAX_SHARED] = [IrqHandler::empty(); MAX_SHARED];
 
 /// Global IRQ router.
-pub static IRQ_ROUTER: Mutex<IrqRouter> = Mutex::new(IrqRouter::new());
+pub static IRQ_ROUTER: OrderedMutex<IrqRouter, { crate::sync::levels::HAL }> =
+    OrderedMutex::new(IrqRouter::new());

@@ -8,7 +8,7 @@
 
 extern crate alloc;
 use alloc::boxed::Box;
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 
 /// Trait for network interface controller drivers.
 ///
@@ -43,7 +43,8 @@ pub trait NicDriver: Send {
 ///
 /// Lock ordering: SOCKETS → ACTIVE_NIC is safe.
 /// In IRQ context, use try_lock() to avoid deadlock.
-pub static ACTIVE_NIC: Mutex<Option<Box<dyn NicDriver>>> = Mutex::new(None);
+pub static ACTIVE_NIC: OrderedMutex<Option<Box<dyn NicDriver>>, { crate::sync::levels::HAL }> =
+    OrderedMutex::new(None);
 
 /// Register a NIC driver as the active network interface.
 pub fn register_nic(nic: Box<dyn NicDriver>) {

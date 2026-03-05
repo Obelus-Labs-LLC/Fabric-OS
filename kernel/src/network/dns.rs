@@ -7,7 +7,7 @@
 
 extern crate alloc;
 use alloc::vec::Vec;
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use core::sync::atomic::{AtomicU16, Ordering};
 use crate::serial_println;
 
@@ -332,7 +332,8 @@ impl DnsCache {
 }
 
 /// Global DNS cache.
-pub static DNS_CACHE: Mutex<DnsCache> = Mutex::new(DnsCache::new());
+pub static DNS_CACHE: OrderedMutex<DnsCache, { crate::sync::levels::NETWORK }> =
+    OrderedMutex::new(DnsCache::new());
 
 /// Transaction ID counter for pseudo-random IDs.
 static TXN_COUNTER: AtomicU16 = AtomicU16::new(0x1234);

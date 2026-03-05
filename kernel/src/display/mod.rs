@@ -18,7 +18,7 @@ pub mod compositor;
 pub mod drawing;
 pub mod text;
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use crate::serial_println;
 
 pub use framebuffer::FramebufferInfo;
@@ -105,7 +105,8 @@ impl SurfaceTable {
 }
 
 /// Global surface table for userspace display syscalls.
-pub static SURFACE_TABLE: Mutex<SurfaceTable> = Mutex::new(SurfaceTable::new());
+pub static SURFACE_TABLE: OrderedMutex<SurfaceTable, { crate::sync::levels::DISPLAY }> =
+    OrderedMutex::new(SurfaceTable::new());
 
 // ── Global Display State ─────────────────────────────────────────────
 
@@ -116,7 +117,8 @@ pub struct DisplayState {
 }
 
 /// Global display state, initialized in Phase 10.
-pub static DISPLAY: Mutex<Option<DisplayState>> = Mutex::new(None);
+pub static DISPLAY: OrderedMutex<Option<DisplayState>, { crate::sync::levels::DISPLAY }> =
+    OrderedMutex::new(None);
 
 // ── Initialization ───────────────────────────────────────────────────
 

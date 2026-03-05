@@ -30,17 +30,19 @@ pub mod nic_dispatch;
 pub mod crypto;
 pub mod tls;
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use crate::serial_println;
 
 pub use socket::SocketTable;
 pub use loopback::Loopback;
 
 /// Global socket table — 256 slots.
-pub static SOCKETS: Mutex<SocketTable> = Mutex::new(SocketTable::new());
+pub static SOCKETS: OrderedMutex<SocketTable, { crate::sync::levels::NETWORK }> =
+    OrderedMutex::new(SocketTable::new());
 
 /// Global loopback interface — 64-slot packet queue.
-pub static LOOPBACK: Mutex<Loopback> = Mutex::new(Loopback::new());
+pub static LOOPBACK: OrderedMutex<Loopback, { crate::sync::levels::NETWORK }> =
+    OrderedMutex::new(Loopback::new());
 
 /// Initialize the network subsystem.
 pub fn init() {

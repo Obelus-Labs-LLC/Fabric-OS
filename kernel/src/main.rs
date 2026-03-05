@@ -25,6 +25,7 @@ mod panic;
 mod pci;
 mod process;
 mod serial;
+mod sync;
 mod vfs;
 mod virtio;
 mod vmx;

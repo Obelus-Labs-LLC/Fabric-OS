@@ -18,7 +18,7 @@ pub mod cpio;
 pub mod ops;
 pub mod stdio;
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use crate::serial_println;
 
 use inode::InodeTable;
@@ -28,19 +28,24 @@ use tmpfs::Tmpfs;
 use devfs::Devfs;
 
 /// Global inode table.
-pub static INODES: Mutex<InodeTable> = Mutex::new(InodeTable::new());
+pub static INODES: OrderedMutex<InodeTable, { crate::sync::levels::VFS }> =
+    OrderedMutex::new(InodeTable::new());
 
 /// Global mount table.
-pub static MOUNTS: Mutex<MountTable> = Mutex::new(MountTable::new());
+pub static MOUNTS: OrderedMutex<MountTable, { crate::sync::levels::VFS }> =
+    OrderedMutex::new(MountTable::new());
 
 /// Global open file table.
-pub static OPEN_FILES: Mutex<OpenFileTable> = Mutex::new(OpenFileTable::new());
+pub static OPEN_FILES: OrderedMutex<OpenFileTable, { crate::sync::levels::VFS }> =
+    OrderedMutex::new(OpenFileTable::new());
 
 /// Global tmpfs instance.
-pub static TMPFS: Mutex<Tmpfs> = Mutex::new(Tmpfs::new());
+pub static TMPFS: OrderedMutex<Tmpfs, { crate::sync::levels::VFS }> =
+    OrderedMutex::new(Tmpfs::new());
 
 /// Global devfs instance.
-pub static DEVFS: Mutex<Devfs> = Mutex::new(Devfs::new());
+pub static DEVFS: OrderedMutex<Devfs, { crate::sync::levels::VFS }> =
+    OrderedMutex::new(Devfs::new());
 
 /// Initialize the VFS subsystem:
 /// 1. Mount tmpfs at "/"

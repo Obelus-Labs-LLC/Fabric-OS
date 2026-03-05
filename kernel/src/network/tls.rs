@@ -16,7 +16,7 @@
 #![allow(dead_code)]
 
 use alloc::vec::Vec;
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use super::socket::SocketId;
 use super::crypto;
 
@@ -124,9 +124,9 @@ impl TlsSession {
 const MAX_TLS_SESSIONS: usize = 8;
 
 /// Global TLS session table.
-static TLS_SESSIONS: Mutex<[Option<alloc::boxed::Box<TlsSession>>; MAX_TLS_SESSIONS]> = {
+static TLS_SESSIONS: OrderedMutex<[Option<alloc::boxed::Box<TlsSession>>; MAX_TLS_SESSIONS], { crate::sync::levels::NETWORK }> = {
     const NONE: Option<alloc::boxed::Box<TlsSession>> = None;
-    Mutex::new([NONE; MAX_TLS_SESSIONS])
+    OrderedMutex::new([NONE; MAX_TLS_SESSIONS])
 };
 
 // ============================================================================

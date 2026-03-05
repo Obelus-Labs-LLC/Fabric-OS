@@ -6,7 +6,7 @@
 
 #![allow(dead_code)]
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use crate::pci::PciDevice;
 use super::driver_sdk::DriverResources;
 
@@ -238,4 +238,5 @@ impl PciDriverTable {
 }
 
 /// Global PCI driver table.
-pub static PCI_DRIVER_TABLE: Mutex<PciDriverTable> = Mutex::new(PciDriverTable::new());
+pub static PCI_DRIVER_TABLE: OrderedMutex<PciDriverTable, { crate::sync::levels::HAL }> =
+    OrderedMutex::new(PciDriverTable::new());

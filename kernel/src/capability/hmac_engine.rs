@@ -8,13 +8,14 @@
 
 use hmac::{Hmac, Mac};
 use sha3::Sha3_256;
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 
 type HmacSha3 = Hmac<Sha3_256>;
 
 /// Kernel-secret HMAC key (32 bytes).
 /// Initialized once at boot via `init()`. Zero until then.
-static HMAC_KEY: Mutex<[u8; 32]> = Mutex::new([0u8; 32]);
+static HMAC_KEY: OrderedMutex<[u8; 32], { crate::sync::levels::STORE }> =
+    OrderedMutex::new([0u8; 32]);
 
 /// Read the CPU timestamp counter for boot-time entropy.
 fn rdtsc() -> u64 {

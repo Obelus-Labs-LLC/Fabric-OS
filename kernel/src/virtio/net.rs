@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use crate::io::{inb, outb, inw, outw, inl, outl};
 use crate::memory::{frame, PhysAddr, PAGE_SIZE};
 use crate::pci::PciDevice;
@@ -77,7 +77,8 @@ pub struct VirtioNet {
 }
 
 /// Global virtio-net device instance.
-pub static NIC: Mutex<Option<VirtioNet>> = Mutex::new(None);
+pub static NIC: OrderedMutex<Option<VirtioNet>, { crate::sync::levels::HAL }> =
+    OrderedMutex::new(None);
 
 impl VirtioNet {
     /// Initialize the virtio-net device from a PCI device descriptor.

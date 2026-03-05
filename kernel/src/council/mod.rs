@@ -22,7 +22,7 @@ pub mod override_mgr;
 pub mod gpu_isolation;
 pub mod consensus;
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use fabric_types::governance::{PolicyVerdict, TierLevel, ModelId, CouncilVerdict};
 use crate::governance::rules::EvalContext;
 use crate::serial_println;
@@ -50,7 +50,8 @@ pub const ADMISSION_QUEUE_THRESHOLD: u32 = 8;
 pub const ADMISSION_LATENCY_THRESHOLD: u64 = 10;
 
 /// Global Council instance.
-pub static COUNCIL: Mutex<CouncilEngine> = Mutex::new(CouncilEngine::new());
+pub static COUNCIL: OrderedMutex<CouncilEngine, { crate::sync::levels::STORE }> =
+    OrderedMutex::new(CouncilEngine::new());
 
 /// The central Council engine.
 pub struct CouncilEngine {

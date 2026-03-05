@@ -194,58 +194,9 @@ impl BusRouter {
             }
         };
 
-        // 5. Capability validation
-        if header.capability_id == 0 {
-            self.reject(header, AuditAction::CapDenied, ts);
-            return Err(BusError::CapabilityInvalid(CapabilityError::NotFound));
-        }
-
-        // Validate capability (locks STORE briefly, then releases)
-        if let Err(e) = capability::validate(
-            header.capability_id,
-            fabric_types::Perm::WRITE,
-            nonce,
-        ) {
-            self.audit.append(
-                header.sender,
-                AuditAction::CapDenied,
-                header.receiver,
-                header.msg_type,
-                header.capability_id,
-                header.sequence,
-                ts,
-            );
-            self.total_rejected += 1;
-            return Err(BusError::CapabilityInvalid(e));
-        }
-
-        // 6. Ownership check — cap owner must match sender
-        {
-            let store = capability::STORE.lock();
-            match store.get_token_info(header.capability_id) {
-                Some((owner, _resource)) => {
-                    if owner != header.sender {
-                        drop(store);
-                        self.audit.append(
-                            header.sender,
-                            AuditAction::CapDenied,
-                            header.receiver,
-                            header.msg_type,
-                            header.capability_id,
-                            header.sequence,
-                            ts,
-                        );
-                        self.total_rejected += 1;
-                        return Err(BusError::OwnerMismatch);
-                    }
-                }
-                None => {
-                    drop(store);
-                    self.reject(header, AuditAction::CapDenied, ts);
-                    return Err(BusError::CapabilityInvalid(CapabilityError::NotFound));
-                }
-            }
-        }
+        // 5-6. Capability validation + ownership check
+        // TD-003: Moved to bus::send() BEFORE BUS lock to maintain
+        // lock ordering (STORE level 7 < BUS level 9).
 
         // 7. Sequence number check
         if let Err(seq_err) = self.sequences.check(header.sender, header.sequence) {

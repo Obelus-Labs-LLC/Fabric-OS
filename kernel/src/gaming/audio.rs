@@ -7,7 +7,7 @@
 
 #![allow(dead_code)]
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use crate::serial_println;
 
 /// Maximum concurrent audio sources.
@@ -228,7 +228,8 @@ impl AudioMixer {
 }
 
 /// Global audio mixer.
-pub static AUDIO_MIXER: Mutex<AudioMixer> = Mutex::new(AudioMixer::new());
+pub static AUDIO_MIXER: OrderedMutex<AudioMixer, { crate::sync::levels::INPUT }> =
+    OrderedMutex::new(AudioMixer::new());
 
 /// Initialize the audio subsystem.
 pub fn init() {

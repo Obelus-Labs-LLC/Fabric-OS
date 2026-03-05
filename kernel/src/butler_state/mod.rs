@@ -9,7 +9,7 @@
 use crate::memory::{PhysAddr, PAGE_SIZE};
 use crate::memory::frame;
 use crate::serial_println;
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 
 /// Maximum children tracked in the externalized state.
 pub const MAX_CHILDREN: usize = 64;
@@ -192,7 +192,8 @@ impl ButlerStateManager {
 }
 
 /// Global Butler state manager instance.
-pub static BUTLER_STATE: Mutex<ButlerStateManager> = Mutex::new(ButlerStateManager::new());
+pub static BUTLER_STATE: OrderedMutex<ButlerStateManager, { crate::sync::levels::TABLE }> =
+    OrderedMutex::new(ButlerStateManager::new());
 
 /// Initialize the Butler state subsystem.
 pub fn init() {

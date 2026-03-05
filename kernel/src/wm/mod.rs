@@ -16,7 +16,7 @@ extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use fabric_types::ProcessId;
 use crate::display::compositor::Surface;
 use self::event::{WmEvent, WmEventQueue};
@@ -277,4 +277,5 @@ impl WindowTable {
 }
 
 /// Global window table.
-pub static WINDOW_TABLE: Mutex<WindowTable> = Mutex::new(WindowTable::new());
+pub static WINDOW_TABLE: OrderedMutex<WindowTable, { crate::sync::levels::INPUT }> =
+    OrderedMutex::new(WindowTable::new());

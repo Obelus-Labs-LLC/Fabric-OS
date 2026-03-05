@@ -19,8 +19,8 @@ pub mod queue;
 pub mod router;
 pub mod sequence;
 
-use spin::Mutex;
 use fabric_types::{MessageHeader, ProcessId};
+use crate::sync::OrderedMutex;
 use crate::serial_println;
 
 pub use router::{BusRouter, BusError};
@@ -28,7 +28,8 @@ pub use queue::Envelope;
 pub use monitor::MonitorFilter;
 
 /// Global bus router instance.
-pub static BUS: Mutex<BusRouter> = Mutex::new(BusRouter::new());
+pub static BUS: OrderedMutex<BusRouter, { crate::sync::levels::BUS }> =
+    OrderedMutex::new(BusRouter::new());
 
 /// Initialize the message bus subsystem. Must be called after heap init.
 pub fn init() {
@@ -45,16 +46,36 @@ pub fn register_process(pid: ProcessId) -> Result<(), BusError> {
 
 pub fn send(header: &MessageHeader, payload: Option<&[u8]>, nonce: u32) -> Result<(), BusError> {
     // Phase 5A: Policy pre-check BEFORE acquiring BUS lock.
-    // Lock ordering: GOVERNANCE < TABLE < STORE < BUS
+    // Lock ordering: GOVERNANCE(5) < TABLE(6) < STORE(7) < BUS(9)
     crate::governance::evaluate_policy(header)?;
 
-    // Policy allows — proceed with normal 12-step pipeline
-    let mut bus = BUS.lock();
-    let result = bus.send(header, payload, nonce);
-    if result.is_err() {
-        // If send fails after policy pass, that's a bus-level rejection (not policy)
+    // TD-003: Capability validation BEFORE BUS lock (STORE level 7 < BUS level 9).
+    // Previously done inside BusRouter::send(), which violated lock ordering.
+    if header.capability_id != 0 {
+        crate::capability::validate(
+            header.capability_id,
+            fabric_types::Perm::WRITE,
+            nonce,
+        ).map_err(BusError::CapabilityInvalid)?;
+
+        // Ownership check: cap owner must match sender
+        let store = crate::capability::STORE.lock();
+        match store.get_token_info(header.capability_id) {
+            Some((owner, _)) if owner != header.sender => {
+                return Err(BusError::OwnerMismatch);
+            }
+            None => {
+                return Err(BusError::CapabilityInvalid(
+                    crate::capability::CapabilityError::NotFound,
+                ));
+            }
+            _ => {} // Valid
+        }
     }
-    result
+
+    // All pre-checks passed — proceed with BUS-locked pipeline
+    let mut bus = BUS.lock();
+    bus.send(header, payload, nonce)
 }
 
 pub fn receive(pid: ProcessId) -> Option<Envelope> {

@@ -7,7 +7,7 @@
 
 #![allow(dead_code)]
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use crate::memory::{PhysAddr, PAGE_SIZE, hhdm_offset};
 use crate::memory::frame;
 use super::driver_sdk::DmaBuffer;
@@ -139,4 +139,5 @@ impl DmaManager {
 }
 
 /// Global DMA manager.
-pub static DMA_MANAGER: Mutex<DmaManager> = Mutex::new(DmaManager::new());
+pub static DMA_MANAGER: OrderedMutex<DmaManager, { crate::sync::levels::HAL }> =
+    OrderedMutex::new(DmaManager::new());

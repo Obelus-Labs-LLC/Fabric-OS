@@ -22,7 +22,7 @@ pub mod acs;
 pub mod wp_protect;
 pub mod break_glass;
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use fabric_types::MessageHeader;
 use fabric_types::governance::{SafetyState, AcsState, PolicyVerdict, RuleAction};
 use crate::bus::BusError;
@@ -35,7 +35,8 @@ use acs::AcsStateMachine;
 use break_glass::BreakGlass;
 
 /// Global governance engine instance.
-pub static GOVERNANCE: Mutex<GovernanceEngine> = Mutex::new(GovernanceEngine::new());
+pub static GOVERNANCE: OrderedMutex<GovernanceEngine, { crate::sync::levels::GOVERNANCE }> =
+    OrderedMutex::new(GovernanceEngine::new());
 
 /// The central governance engine.
 pub struct GovernanceEngine {

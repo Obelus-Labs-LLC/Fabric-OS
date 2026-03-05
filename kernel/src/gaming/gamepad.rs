@@ -6,7 +6,7 @@
 
 #![allow(dead_code)]
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use crate::serial_println;
 
 /// Maximum concurrent gamepads.
@@ -218,7 +218,8 @@ impl GamepadTable {
 }
 
 /// Global gamepad table.
-pub static GAMEPAD_TABLE: Mutex<GamepadTable> = Mutex::new(GamepadTable::new());
+pub static GAMEPAD_TABLE: OrderedMutex<GamepadTable, { crate::sync::levels::INPUT }> =
+    OrderedMutex::new(GamepadTable::new());
 
 /// Initialize gamepad subsystem. Auto-connects slot 0 for keyboard mapping.
 pub fn init() {

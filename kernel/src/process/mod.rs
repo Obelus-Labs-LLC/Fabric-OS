@@ -23,7 +23,7 @@ pub mod supervisor;
 pub mod butler;
 pub mod table;
 
-use spin::Mutex;
+use crate::sync::OrderedMutex;
 use alloc::string::String;
 use fabric_types::{
     Intent, ProcessId, ProcessState, SupervisionStrategy,
@@ -37,10 +37,12 @@ pub use table::{ProcessTable, ProcessError};
 pub use pcb::{ProcessControlBlock, ExitReason};
 
 /// Global process table.
-pub static TABLE: Mutex<ProcessTable> = Mutex::new(ProcessTable::new());
+pub static TABLE: OrderedMutex<ProcessTable, { crate::sync::levels::TABLE }> =
+    OrderedMutex::new(ProcessTable::new());
 
 /// Global scheduler.
-pub static SCHEDULER: Mutex<scheduler::Scheduler> = Mutex::new(scheduler::Scheduler::new());
+pub static SCHEDULER: OrderedMutex<scheduler::Scheduler, { crate::sync::levels::SCHEDULER }> =
+    OrderedMutex::new(scheduler::Scheduler::new());
 
 /// Maximum priority inheritance chain depth.
 const MAX_INHERITANCE_DEPTH: u32 = 4;
