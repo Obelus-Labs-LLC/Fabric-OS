@@ -9,6 +9,7 @@ mod butler_state;
 mod capability;
 mod council;
 mod display;
+mod drivers;
 mod elf;
 mod governance;
 mod hal;
@@ -52,7 +53,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v1.3.0 — Phase 18 (Gaming & Media)");
+    serial_println!("[FABRIC]   Fabric OS v1.5.0 — Phase 20A (Ethernet Driver)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -400,22 +401,92 @@ extern "C" fn _start() -> ! {
     // PCI bus scan
     let pci_devices = pci::init();
 
-    // Initialize virtio-net if found
+    // --- Enumerate ALL Ethernet controllers for diagnostics ---
+    let mut eth_count = 0u32;
     for dev in &pci_devices {
-        if dev.is_virtio_net() {
-            serial_println!("[PHASE11] Found virtio-net at {:02x}:{:02x}.{}", dev.bus, dev.device, dev.function);
-            if let Some(nic) = virtio::net::VirtioNet::init(dev) {
-                *virtio::net::NIC.lock() = Some(nic);
-                serial_println!("[PHASE11] virtio-net initialized");
+        if drivers::e1000e::is_ethernet_controller(dev) {
+            eth_count += 1;
+            serial_println!(
+                "[PHASE11] NIC #{}: {:02x}:{:02x}.{} {:04x}:{:04x} IRQ={} — {}",
+                eth_count, dev.bus, dev.device, dev.function,
+                dev.vendor_id, dev.device_id, dev.irq_line,
+                drivers::e1000e::nic_name(dev)
+            );
+        }
+    }
+    if eth_count == 0 {
+        // Also check for VirtIO-net (class 0x02 but sometimes class 0x00 on QEMU)
+        for dev in &pci_devices {
+            if dev.is_virtio_net() {
+                eth_count += 1;
+                serial_println!(
+                    "[PHASE11] NIC #{}: {:02x}:{:02x}.{} {:04x}:{:04x} IRQ={} — VirtIO-net",
+                    eth_count, dev.bus, dev.device, dev.function,
+                    dev.vendor_id, dev.device_id, dev.irq_line
+                );
+            }
+        }
+    }
+    if eth_count == 0 {
+        serial_println!("[PHASE11] WARNING: No Ethernet controllers found on PCI bus");
+    }
+
+    // --- Initialize NIC: e1000e first → VirtIO fallback ---
+    let mut nic_found = false;
+
+    // Try e1000e (Intel I217/I218/I219 family)
+    for dev in &pci_devices {
+        if drivers::e1000e::is_e1000e(dev) {
+            serial_println!("[PHASE11] Initializing e1000e (0x{:04x})...", dev.device_id);
+            if let Some(nic) = drivers::e1000e::E1000eDriver::init_from_pci(dev) {
+                serial_println!("[PHASE11] e1000e initialized — link={}",
+                    if nic.link_up { "UP" } else { "DOWN" });
+                network::nic_trait::register_nic(alloc::boxed::Box::new(nic));
+                nic_found = true;
             } else {
-                serial_println!("[PHASE11] WARNING: virtio-net init failed");
+                serial_println!("[PHASE11] WARNING: e1000e init failed");
             }
             break;
         }
     }
 
+    // Log Realtek detection (not yet driven — Phase 20B)
+    if !nic_found {
+        for dev in &pci_devices {
+            if drivers::e1000e::is_realtek_nic(dev) {
+                serial_println!("[PHASE11] DETECTED: Realtek NIC {:04x}:{:04x} — {} (no driver yet, Phase 20B)",
+                    dev.vendor_id, dev.device_id, drivers::e1000e::nic_name(dev));
+                serial_println!("[PHASE11] ACTION: Implement Realtek RTL8168 driver (BAR0=0x{:08x} IRQ={})",
+                    dev.bars[0], dev.irq_line);
+                break;
+            }
+        }
+    }
+
+    // Fallback: try VirtIO-net (QEMU)
+    if !nic_found {
+        for dev in &pci_devices {
+            if dev.is_virtio_net() {
+                serial_println!("[PHASE11] Initializing virtio-net...");
+                if let Some(nic) = virtio::net::VirtioNet::init(dev) {
+                    serial_println!("[PHASE11] virtio-net initialized");
+                    let adapter = network::virtio_nic_adapter::VirtioNicAdapter::new(nic);
+                    network::nic_trait::register_nic(alloc::boxed::Box::new(adapter));
+                    nic_found = true;
+                } else {
+                    serial_println!("[PHASE11] WARNING: virtio-net init failed");
+                }
+                break;
+            }
+        }
+    }
+
+    if !nic_found {
+        serial_println!("[PHASE11] WARNING: No supported NIC driver — network unavailable");
+    }
+
     // Send ARP request for gateway (10.0.2.2)
-    if virtio::net::NIC.lock().is_some() {
+    if network::nic_trait::has_nic() {
         network::arp::arp_request([10, 0, 2, 2]);
     }
 
@@ -432,7 +503,7 @@ extern "C" fn _start() -> ! {
     serial_println!("[PHASE12] ============================================");
 
     // Blocking ARP resolve for gateway (fills ARP table)
-    if virtio::net::NIC.lock().is_some() {
+    if network::nic_trait::has_nic() {
         serial_println!("[PHASE12] Resolving gateway MAC via ARP...");
         match network::arp::arp_resolve([10, 0, 2, 2]) {
             Some(mac) => {
@@ -551,6 +622,47 @@ extern "C" fn _start() -> ! {
     // STRESS Phase 18 Gate
     serial_println!();
     ocrb::run_phase18_gate();
+
+    // Phase 19: Driver Framework
+    serial_println!();
+    serial_println!("[PHASE19] ============================================");
+    serial_println!("[PHASE19]   Phase 19 — Driver Framework");
+    serial_println!("[PHASE19] ============================================");
+    hal::driver_framework_init();
+    serial_println!("[PHASE19] Phase 19 initialization complete");
+
+    // STRESS Phase 19 Gate
+    serial_println!();
+    ocrb::run_phase19_gate();
+
+    // Phase 20A: Ethernet Driver (e1000e)
+    serial_println!();
+    serial_println!("[PHASE20A] ============================================");
+    serial_println!("[PHASE20A]   Phase 20A — Ethernet Driver (e1000e)");
+    serial_println!("[PHASE20A] ============================================");
+    serial_println!("[PHASE20A] NicDriver trait: abstract NIC interface");
+    serial_println!("[PHASE20A] VirtIO adapter: wraps VirtioNet as NicDriver");
+    serial_println!("[PHASE20A] e1000e driver: Intel I217/I218/I219 + Broadwell");
+    serial_println!("[PHASE20A] Realtek detection: RTL8168/8169/8101/8111GR");
+    {
+        let nic_guard = network::nic_trait::ACTIVE_NIC.lock();
+        match nic_guard.as_ref() {
+            Some(n) => {
+                let mac = n.mac_address();
+                serial_println!("[PHASE20A] Active NIC: {}", n.name());
+                serial_println!("[PHASE20A] MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+            }
+            None => {
+                serial_println!("[PHASE20A] Active NIC: none");
+            }
+        }
+    }
+    serial_println!("[PHASE20A] Phase 20A initialization complete");
+
+    // STRESS Phase 20A Gate
+    serial_println!();
+    ocrb::run_phase20a_gate();
 
     // Re-initialize process table for production use (STRESS tests left stale state)
     process::TABLE.lock().clear();

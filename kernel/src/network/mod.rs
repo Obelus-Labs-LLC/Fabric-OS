@@ -24,6 +24,8 @@ pub mod ethernet;
 pub mod arp;
 pub mod dns;
 pub mod http;
+pub mod nic_trait;
+pub mod virtio_nic_adapter;
 pub mod nic_dispatch;
 pub mod crypto;
 pub mod tls;

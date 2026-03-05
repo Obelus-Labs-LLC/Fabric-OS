@@ -222,9 +222,9 @@ extern "C" fn interrupt_dispatch(frame: *mut SavedContext) {
             crate::keyboard::keyboard_irq_handler();
         },
 
-        // Virtio-net interrupt (vector 43, IRQ11)
+        // NIC interrupt (vector 43, IRQ11) — generic handler for any NIC driver
         43 => {
-            crate::virtio::net::virtio_net_irq_handler();
+            nic_irq_handler();
         },
 
         // Spurious interrupt (vector 255)
@@ -238,6 +238,17 @@ extern "C" fn interrupt_dispatch(frame: *mut SavedContext) {
             super::apic::send_eoi();
         },
     }
+}
+
+/// Generic NIC IRQ handler — delegates to the active NIC driver.
+/// Uses try_lock() to avoid deadlock if NIC is already locked (e.g., during TX).
+fn nic_irq_handler() {
+    if let Some(mut nic) = crate::network::nic_trait::ACTIVE_NIC.try_lock() {
+        if let Some(ref mut driver) = *nic {
+            driver.handle_irq();
+        }
+    }
+    super::apic::send_eoi();
 }
 
 fn exception_handler(name: &str, frame: &SavedContext) {

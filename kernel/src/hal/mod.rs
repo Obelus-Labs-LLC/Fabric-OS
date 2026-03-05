@@ -15,6 +15,10 @@
 pub mod registry;
 pub mod interrupt;
 pub mod drivers;
+pub mod driver_sdk;
+pub mod dma;
+pub mod irq_router;
+pub mod pci_bind;
 
 use alloc::boxed::Box;
 use alloc::vec;
@@ -394,4 +398,28 @@ pub fn driver_pid(resource_id: ResourceId) -> Option<ProcessId> {
 /// Get the number of registered drivers.
 pub fn driver_count() -> usize {
     REGISTRY.lock().count()
+}
+
+// ─── Driver Framework (Phase 19) ─────────────────────────────────
+
+/// Initialize the driver framework subsystems.
+///
+/// Sets up the DMA manager, IRQ router (pre-registers timer on vector 32),
+/// and PCI driver table. Called from main.rs Phase 19 boot block.
+pub fn driver_framework_init() {
+    use irq_router::{IrqHandler, IRQ_ROUTER};
+
+    // Pre-register timer IRQ (vector 32)
+    let timer_handler = IrqHandler {
+        driver_name: "timer",
+        resource_id: 0x0002,
+        active: true,
+    };
+    let _ = IRQ_ROUTER.lock().register(32, timer_handler);
+
+    serial_println!("[HAL] Driver framework initialized");
+    serial_println!("[HAL]   DMA manager: {} slots", dma::MAX_DMA_BUFFERS);
+    serial_println!("[HAL]   IRQ router: vectors 32-47, {} handlers/vector",
+        irq_router::MAX_SHARED);
+    serial_println!("[HAL]   PCI driver table: {} slots", pci_bind::MAX_PCI_DRIVERS);
 }

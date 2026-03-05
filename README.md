@@ -11,10 +11,20 @@
 
 | | |
 |:---|:---|
-| **Current State** | 17 kernel phases complete (0-16), all SRI 100/100. TLS 1.3 + Window Manager complete. |
-| **Kernel LOC** | ~30K lines Rust, zero warnings, boots clean |
-| **Key Milestone** | Phase 16: Window Manager with overlapping windows, z-ordering, taskbar, Alt+Tab. Desktop environment ready. |
+| **Current State** | 17 kernel phases complete (0-16), all SRI 100/100. TLS 1.3 + Window Manager + V8 Platform complete. |
+| **Kernel LOC** | ~30K lines Rust + 2.3K V8 platform, zero warnings, boots clean |
+| **Key Milestone** | Phase 16: Window Manager ready. L13.5: V8 Platform Interface complete. |
 | **Timeline** | Completion-based, not calendar. |
+
+### Component Status
+
+| Component | Status | Description |
+|:---|:---|:---|
+| FabricOS Phases 0-16 | ✅ Complete | Core kernel, TLS 1.3, Window Manager |
+| **L13.5 V8 Platform Interface** | **✅ Complete** | `#[no_std]` platform layer for V8 engine (D2-D7) |
+| L13.6 V8 Cross-Compile | ⏳ Next | Build V8 for x86_64-unknown-none |
+| Phase 21 USB XHCI | Pending | USB 3.0 host controller |
+| Phase 22 NVMe | Pending | NVMe SSD driver |
 
 ---
 

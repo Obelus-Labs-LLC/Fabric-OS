@@ -195,9 +195,9 @@ pub fn arp_resolve(target_ip: [u8; 4]) -> Option<[u8; 6]> {
 /// Send an ARP request for the given IP address via the NIC.
 pub fn arp_request(target_ip: [u8; 4]) {
     // Get our NIC's MAC and IP
-    let mut nic_guard = crate::virtio::net::NIC.lock();
+    let mut nic_guard = crate::network::nic_trait::ACTIVE_NIC.lock();
     if let Some(ref mut nic) = *nic_guard {
-        let src_mac = nic.mac;
+        let src_mac = nic.mac_address();
         let src_ip: [u8; 4] = [10, 0, 2, 15]; // QEMU user-mode guest IP
 
         let arp = ArpPacket::build_request(src_mac, src_ip, target_ip);

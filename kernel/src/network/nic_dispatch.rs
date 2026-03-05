@@ -55,8 +55,8 @@ pub fn is_loopback(dst_ip: &[u8; 4]) -> bool {
 
 /// Get the NIC's MAC address (if NIC is initialized).
 pub fn get_nic_mac() -> Option<[u8; 6]> {
-    let nic = crate::virtio::net::NIC.lock();
-    nic.as_ref().map(|n| n.mac)
+    let nic = super::nic_trait::ACTIVE_NIC.lock();
+    nic.as_ref().map(|n| n.mac_address())
 }
 
 /// Transmit an IP packet via the appropriate interface.
@@ -96,7 +96,7 @@ pub fn transmit_ip(packet: &[u8]) {
 
         let frame = EthernetFrame::build(dst_mac, src_mac, ETHERTYPE_IPV4, packet);
 
-        let mut nic = crate::virtio::net::NIC.lock();
+        let mut nic = super::nic_trait::ACTIVE_NIC.lock();
         if let Some(ref mut nic) = *nic {
             nic.send_packet(&frame);
         }
@@ -121,10 +121,9 @@ pub fn nic_receive_one() -> bool {
     // Phase 1: Poll NIC, copy data to stack, recycle descriptor
     let mut frame_buf = [0u8; 1600]; // MTU + headers
     let frame_len;
-    let desc_idx;
 
     {
-        let mut nic = crate::virtio::net::NIC.lock();
+        let mut nic = super::nic_trait::ACTIVE_NIC.lock();
         let nic = match nic.as_mut() {
             Some(n) => n,
             None => return false,
@@ -134,12 +133,10 @@ pub fn nic_receive_one() -> bool {
             Some((ptr, len)) => {
                 let copy_len = len.min(frame_buf.len());
                 unsafe {
-                    core::ptr::copy_nonoverlapping(ptr, frame_buf.as_mut_ptr(), copy_len);
+                    core::ptr::copy_nonoverlapping(ptr as *const u8, frame_buf.as_mut_ptr(), copy_len);
                 }
                 frame_len = copy_len;
-                // Get the descriptor index from the used ring (it was the last polled)
-                desc_idx = nic.rx_queue.last_used_idx.wrapping_sub(1);
-                nic.recycle_rx(desc_idx);
+                nic.recycle_rx();
             }
             None => return false,
         }
