@@ -198,21 +198,72 @@ impl TrbRing {
         unsafe { core::ptr::read_volatile(self.trb_at(index)) }
     }
 
-    /// Write a TRB at index.
+    /// Write a TRB at index (full struct write — used for init/Link TRBs only).
+    ///
+    /// WARNING: For producer ring enqueue, use `write_trb_safe()` instead
+    /// to prevent the cycle-bit race condition.
     pub fn write_trb(&self, index: usize, trb: Trb) {
         unsafe { core::ptr::write_volatile(self.trb_at(index), trb) }
+    }
+
+    /// Write a TRB at index with cycle-bit-last ordering.
+    ///
+    /// Per xHCI spec and Linux xhci-ring.c:3050 — the cycle bit MUST be
+    /// written LAST. If we write the entire 16-byte TRB in one shot, the
+    /// CPU may split it into multiple stores, and the xHCI hardware (which
+    /// polls DMA memory) could see the cycle bit flip before parameter/status
+    /// are written, consuming a partially-written TRB.
+    ///
+    /// Sequence:
+    ///   1. Write parameter (QWORD at offset 0)
+    ///   2. Write status (DWORD at offset 8)
+    ///   3. Release fence — ensures all prior stores are visible
+    ///   4. Write control with cycle bit (DWORD at offset 12)
+    ///
+    /// The release fence prevents store reordering across the barrier.
+    /// On x86 this compiles to an `SFENCE` or compiler barrier; on weaker
+    /// architectures (ARM) it emits a proper `DMB ST`.
+    fn write_trb_safe(&self, index: usize, trb: Trb) {
+        use core::sync::atomic::{fence, Ordering};
+
+        let base = self.trb_at(index) as *mut u8;
+        unsafe {
+            // Step 1: Write parameter (bytes 0..7)
+            let param_ptr = base as *mut u64;
+            core::ptr::write_volatile(param_ptr, trb.parameter);
+
+            // Step 2: Write status (bytes 8..11)
+            let status_ptr = base.add(8) as *mut u32;
+            core::ptr::write_volatile(status_ptr, trb.status);
+
+            // Step 3: Memory barrier — all prior writes must be globally
+            // visible before the hardware sees the cycle bit flip.
+            fence(Ordering::Release);
+
+            // Step 4: Write control WITH cycle bit (bytes 12..15) — LAST
+            let control_ptr = base.add(12) as *mut u32;
+            core::ptr::write_volatile(control_ptr, trb.control);
+        }
     }
 
     /// Enqueue a TRB onto a producer ring (Command/Transfer).
     /// Returns the physical address of the enqueued TRB.
     /// The last slot is reserved for the Link TRB.
+    ///
+    /// Uses cycle-bit-last write ordering with a memory barrier
+    /// to prevent the xHCI hardware from seeing a partially-written TRB.
+    /// See Linux xhci-ring.c:3050 for the reference implementation.
     pub fn enqueue(&mut self, mut trb: Trb) -> Option<u64> {
         if self.enqueue_index >= self.size - 1 {
             return None; // ring full (Link TRB slot)
         }
 
         trb.set_cycle(self.cycle);
-        self.write_trb(self.enqueue_index, trb);
+
+        // CRITICAL: Write TRB with cycle-bit-last ordering.
+        // The cycle bit in the control DWORD is what tells hardware
+        // "this TRB is ready to consume". It must be the last thing written.
+        self.write_trb_safe(self.enqueue_index, trb);
 
         let trb_phys = self.phys as u64 + (self.enqueue_index as u64) * (Trb::SIZE as u64);
         self.enqueue_index += 1;

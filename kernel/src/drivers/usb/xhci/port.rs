@@ -15,6 +15,28 @@ use crate::hal::driver_sdk::MmioRegion;
 use super::regs::*;
 
 // ============================================================================
+// Timed Delay — calibrated MMIO spin wait
+// ============================================================================
+
+/// Approximate millisecond delay using MMIO register reads as a timing source.
+///
+/// Each uncached MMIO read takes ~100-1000ns on real hardware.
+/// We use a conservative estimate of 100ns/iteration minimum, so
+/// 10,000 iterations ≈ 1ms. This is intentionally over-waiting to
+/// guarantee the USB spec timing requirements are met.
+///
+/// On QEMU/emulated hardware, MMIO reads are faster, but over-waiting
+/// is harmless during port reset (which is infrequent).
+fn spin_delay_ms(mmio: &MmioRegion, op_base: usize, ms: u32) {
+    let iterations = ms as u64 * 10_000;
+    for _ in 0..iterations {
+        // Read USBSTS — uncached MMIO read creates ~100ns hardware delay
+        let _ = mmio.read32(op_base + OP_USBSTS);
+        core::hint::spin_loop();
+    }
+}
+
+// ============================================================================
 // Port State
 // ============================================================================
 
@@ -384,6 +406,15 @@ pub fn warm_port_reset(mmio: &MmioRegion, op_base: usize, port_index: u8) -> boo
 
 /// Wait for port reset to complete (PRC=1 or timeout).
 ///
+/// For USB 2.0 ports:
+///   - Wait minimum 50ms before polling (USB 2.0 spec §7.1.7.5 —
+///     TDRST reset signal duration is 10-20ms, plus TRSTRCY recovery)
+///   - After completion, wait 10ms TRSTRCY recovery before any transactions
+///
+/// For USB 3.0 ports:
+///   - The xHCI controller handles warm reset timing internally
+///   - No mandatory minimum delay, but we use a reasonable timeout
+///
 /// Returns the updated PortInfo if reset completed, None on timeout.
 pub fn wait_port_reset_complete(
     mmio: &MmioRegion,
@@ -391,7 +422,16 @@ pub fn wait_port_reset_complete(
     port_index: u8,
     protocol: UsbProtocol,
 ) -> Option<PortInfo> {
-    const RESET_TIMEOUT: u32 = 200_000;
+    const RESET_TIMEOUT: u32 = 500_000;
+
+    // USB 2.0: Enforce minimum 50ms delay before polling.
+    // The host controller drives the reset signal for TDRST (10-20ms),
+    // but we must not poll too early or we'll see stale PORTSC values.
+    // Linux uses a 50ms delay here (drivers/usb/host/xhci-hub.c).
+    if protocol == UsbProtocol::Usb2 || protocol == UsbProtocol::Unknown {
+        serial_println!("[PORT] USB 2.0 port {} — waiting 50ms for reset signal", port_index);
+        spin_delay_ms(mmio, op_base, 50);
+    }
 
     for _ in 0..RESET_TIMEOUT {
         let offset = op_base + portsc_offset(port_index);
@@ -402,6 +442,14 @@ pub fn wait_port_reset_complete(
                 if portsc & PORTSC_PRC != 0 {
                     // Clear PRC
                     clear_change_bit(mmio, op_base, port_index, PORTSC_PRC);
+
+                    // USB 2.0: Wait 10ms TRSTRCY recovery time after reset
+                    // completion before the device can respond to transactions.
+                    // (USB 2.0 spec §7.1.7.3)
+                    if protocol == UsbProtocol::Usb2 || protocol == UsbProtocol::Unknown {
+                        spin_delay_ms(mmio, op_base, 10);
+                    }
+
                     return read_port_status(mmio, op_base, port_index, protocol);
                 }
             }
@@ -447,8 +495,11 @@ pub fn suspend_port(mmio: &MmioRegion, op_base: usize, port_index: u8) {
 
 /// Resume a suspended port by setting PLS=U0.
 ///
-/// For USB 3.0 ports, this triggers the link to return to U0.
-/// For USB 2.0 ports, set PLS=Resume (15) first, then U0 after 20ms.
+/// For USB 3.0 ports, this triggers the link to return to U0 directly.
+/// For USB 2.0 ports, the USB spec requires:
+///   1. Set PLS=Resume (15) to drive resume signaling
+///   2. Wait 20ms (TDRSMDN — USB 2.0 spec §7.1.7.7)
+///   3. Set PLS=U0 to complete the resume
 pub fn resume_port(mmio: &MmioRegion, op_base: usize, port_index: u8, protocol: UsbProtocol) {
     serial_println!("[PORT] Resuming port {} ({})", port_index, protocol.as_str());
     match protocol {
@@ -457,13 +508,10 @@ pub fn resume_port(mmio: &MmioRegion, op_base: usize, port_index: u8, protocol: 
             set_link_state(mmio, op_base, port_index, PLS_U0);
         }
         UsbProtocol::Usb2 | UsbProtocol::Unknown => {
-            // USB 2.0: set Resume first, then U0
+            // USB 2.0: set Resume first, wait 20ms (TDRSMDN), then U0
             set_link_state(mmio, op_base, port_index, PLS_RESUME);
-            // In a real driver we'd wait 20ms here, then set U0
-            // For now, busy-wait a short time
-            for _ in 0..50_000 {
-                core::hint::spin_loop();
-            }
+            // USB 2.0 spec §7.1.7.7: host must drive resume for at least 20ms
+            spin_delay_ms(mmio, op_base, 20);
             set_link_state(mmio, op_base, port_index, PLS_U0);
         }
     }
