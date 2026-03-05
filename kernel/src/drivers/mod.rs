@@ -6,3 +6,4 @@
 #![allow(dead_code)]
 
 pub mod e1000e;
+pub mod usb;

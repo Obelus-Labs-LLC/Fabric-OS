@@ -53,7 +53,7 @@ extern "C" fn _start() -> ! {
     serial::init();
 
     serial_println!("[FABRIC] ============================================");
-    serial_println!("[FABRIC]   Fabric OS v1.5.0 — Phase 20A (Ethernet Driver)");
+    serial_println!("[FABRIC]   Fabric OS v1.6.0 — Phase 21a (xHCI USB Controller)");
     serial_println!("[FABRIC]   AI-Coordinated Microkernel Fabric");
     serial_println!("[FABRIC]   (c) Obelus Labs LLC");
     serial_println!("[FABRIC] ============================================");
@@ -663,6 +663,33 @@ extern "C" fn _start() -> ! {
     // STRESS Phase 20A Gate
     serial_println!();
     ocrb::run_phase20a_gate();
+
+    // Phase 21a: USB xHCI Host Controller Bringup
+    serial_println!();
+    serial_println!("[PHASE21A] ============================================");
+    serial_println!("[PHASE21A]   Phase 21a — xHCI Host Controller Bringup");
+    serial_println!("[PHASE21A] ============================================");
+    {
+        match drivers::usb::xhci::probe_pci(&pci_devices) {
+            Some(ctrl) => {
+                let status = if ctrl.running { "OPERATIONAL" } else { "NOT RUNNING" };
+                serial_println!("[PHASE21A] xHCI controller: {}", status);
+                serial_println!("[PHASE21A] xHCI version: {}.{}.{}",
+                    (ctrl.caps.hci_version >> 8) & 0xFF,
+                    (ctrl.caps.hci_version >> 4) & 0xF,
+                    ctrl.caps.hci_version & 0xF);
+                serial_println!("[PHASE21A] Ports: {} max, Slots: {} max",
+                    ctrl.caps.max_ports, ctrl.caps.max_slots);
+                if ctrl.running {
+                    serial_println!("[PHASE21A] Target reached: USBSTS.HCH=0, CNR=0");
+                }
+            }
+            None => {
+                serial_println!("[PHASE21A] No xHCI controller initialized (may not be present)");
+            }
+        }
+    }
+    serial_println!("[PHASE21A] Phase 21a initialization complete");
 
     // Re-initialize process table for production use (STRESS tests left stale state)
     process::TABLE.lock().clear();
