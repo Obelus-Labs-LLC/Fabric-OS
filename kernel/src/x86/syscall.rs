@@ -595,7 +595,11 @@ extern "C" fn syscall_dispatch(frame: *mut SavedContext) {
 
             let mut wt = crate::wm::WINDOW_TABLE.lock();
             match wt.create(owner, title, x, y, width, height) {
-                Some(wid) => frame.rax = wid.0 as u64,
+                Some(wid) => {
+                    frame.rax = wid.0 as u64;
+                    drop(wt);
+                    crate::wm::compositor::compose_and_present();
+                }
                 None => frame.rax = u64::MAX,
             }
         },
@@ -613,6 +617,8 @@ extern "C" fn syscall_dispatch(frame: *mut SavedContext) {
 
             if authorized && wt.destroy(wid) {
                 frame.rax = 0;
+                drop(wt);
+                crate::wm::compositor::compose_and_present();
             } else {
                 frame.rax = u64::MAX;
             }
@@ -652,6 +658,8 @@ extern "C" fn syscall_dispatch(frame: *mut SavedContext) {
                 win.surface.buffer.copy_from_slice(src);
                 win.surface.dirty = true;
                 frame.rax = 0;
+                drop(wt);
+                crate::wm::compositor::compose_and_present();
             } else {
                 frame.rax = u64::MAX;
             }
@@ -696,6 +704,8 @@ extern "C" fn syscall_dispatch(frame: *mut SavedContext) {
                 }
 
                 frame.rax = 0;
+                drop(wt);
+                crate::wm::compositor::compose_and_present();
             } else {
                 frame.rax = u64::MAX;
             }
@@ -709,6 +719,8 @@ extern "C" fn syscall_dispatch(frame: *mut SavedContext) {
             if wt.get(wid).is_some() {
                 wt.set_focus(wid);
                 frame.rax = 0;
+                drop(wt);
+                crate::wm::compositor::compose_and_present();
             } else {
                 frame.rax = u64::MAX;
             }

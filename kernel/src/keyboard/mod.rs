@@ -142,34 +142,25 @@ pub fn keyboard_irq_handler() {
         return;
     }
 
-    // Translate scancode to ASCII
-    let ascii = if !is_break {
-        SCANCODE_TABLE[make_code as usize]
-    } else {
-        SCANCODE_TABLE[make_code as usize]
-    };
-
-    // Try to route to focused window's event queue
+    // Try to route raw scancode to focused window's event queue.
+    // Send make_code (not ASCII) so userspace gets full key info including
+    // special keys (arrows, Page Up/Down, Home, End, etc.).
     if let Some(mut wt) = crate::wm::WINDOW_TABLE.try_lock() {
         if let Some(fid) = wt.focused_id {
             if let Some(win) = wt.get_mut(fid) {
                 if !is_break {
-                    // Key press
-                    if ascii != 0 {
-                        win.event_queue.push(crate::wm::event::WmEvent::KeyPress(ascii));
-                    }
+                    win.event_queue.push(crate::wm::event::WmEvent::KeyPress(make_code));
                 } else {
-                    // Key release
-                    if ascii != 0 {
-                        win.event_queue.push(crate::wm::event::WmEvent::KeyRelease(ascii));
-                    }
+                    win.event_queue.push(crate::wm::event::WmEvent::KeyRelease(make_code));
                 }
                 return;
             }
         }
     }
 
-    // Fallback: no windows or lock contention — use global keyboard buffer
+    // Fallback: no windows or lock contention — use global keyboard buffer.
+    // Translate scancode to ASCII for legacy KbRead syscall compatibility.
+    let ascii = SCANCODE_TABLE[make_code as usize];
     if !is_break && ascii != 0 {
         KEYBOARD_BUFFER.lock().push(ascii);
     }
