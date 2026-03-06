@@ -19,6 +19,12 @@ SECTIONS {
 
     .rodata : {
         *(.rodata .rodata.*)
+
+        /* V8 startup snapshot (embedded by include_bytes! in js_engine/mod.rs) */
+        . = ALIGN(16);
+        __v8_snapshot_start = .;
+        *(.v8_snapshot)
+        __v8_snapshot_end = .;
     } :rodata
 
     . = ALIGN(4096);

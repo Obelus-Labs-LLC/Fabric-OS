@@ -38,6 +38,10 @@ pub mod threads;
 pub mod time;
 pub mod io;
 
+// L13.6: FPU context management for V8 SSE2 boundary
+pub mod fpu;
+pub mod fpu_guard;
+
 // Re-export all public APIs
 pub use memory::{
     v8_alloc, v8_free, v8_realloc,

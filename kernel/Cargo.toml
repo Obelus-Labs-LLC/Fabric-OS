@@ -16,6 +16,8 @@ v8-platform = []
 fabricos-kernel = []
 # Enable test binary
 test-binary = []
+# Enable V8 startup snapshot (requires build/v8/snapshot_blob.bin)
+v8-snapshot = []
 
 [dependencies]
 limine = "0.5"

@@ -8,6 +8,7 @@
 extern crate alloc;
 
 pub mod v8_platform;
+pub mod js_engine;
 
 // Re-export all V8 platform types for convenience
 pub use v8_platform::{
@@ -49,7 +50,10 @@ pub use v8_platform::{
     
     // Sync
     V8Spinlock, V8Mutex,
-    
+
+    // FPU (L13.6)
+    fpu, fpu_guard,
+
     // FFI
     ffi,
 };
