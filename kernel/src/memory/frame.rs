@@ -19,9 +19,97 @@ const BITMAP_SIZE: usize = MAX_FRAMES / 8;
 /// Global frame allocator
 pub static ALLOCATOR: Mutex<BuddyAllocator> = Mutex::new(BuddyAllocator::new());
 
+// --- TD-010: Typed free-list pointer ---
+//
+// `FreeBlockPtr` encapsulates ALL unsafe raw-pointer access for the intrusive
+// free list. Free blocks store a "next" physical address in their first 8 bytes,
+// accessed via HHDM virtual mapping. In debug builds, a canary value is written
+// at byte offset 8 to detect corruption early.
+
+/// Canary value written after the next pointer in debug builds.
+#[cfg(debug_assertions)]
+const FREE_BLOCK_CANARY: u64 = 0xFAB1_CF8E_EB10_C000;
+
+/// Typed pointer to a free block on a buddy allocator free list.
+///
+/// Wraps a physical address. Distinct from `PhysAddr` to prevent accidental
+/// use as a regular address. All raw pointer operations are confined to
+/// `read_next()` and `write_next()`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct FreeBlockPtr(u64);
+
+impl FreeBlockPtr {
+    const NULL: Self = Self(0);
+
+    /// Create a FreeBlockPtr from a frame index.
+    #[inline]
+    fn from_frame(frame: usize) -> Self {
+        debug_assert!(frame < MAX_FRAMES, "[BUDDY] frame index out of bounds: {}", frame);
+        Self((frame * PAGE_SIZE) as u64)
+    }
+
+    #[inline]
+    fn is_null(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Convert back to a frame index.
+    #[inline]
+    fn to_frame(self) -> usize {
+        let frame = self.0 as usize / PAGE_SIZE;
+        debug_assert!(frame < MAX_FRAMES, "[BUDDY] frame from ptr out of bounds: {:#x}", self.0);
+        frame
+    }
+
+    /// Read the next pointer from this free block's first 8 bytes via HHDM.
+    ///
+    /// # Safety
+    /// `self` must be a valid, page-aligned physical address with a
+    /// corresponding HHDM virtual mapping. The block must currently be
+    /// on a free list (not allocated to a caller).
+    #[inline]
+    unsafe fn read_next(self) -> Self {
+        debug_assert!(!self.is_null(), "[BUDDY] read_next on NULL pointer");
+        let virt = PhysAddr::new(self.0).to_virt().as_u64();
+        debug_assert!(virt % 8 == 0, "[BUDDY] free list pointer not 8-byte aligned: {:#x}", virt);
+
+        #[cfg(debug_assertions)]
+        {
+            let canary = unsafe { *((virt + 8) as *const u64) };
+            assert!(
+                canary == FREE_BLOCK_CANARY,
+                "[BUDDY] Canary corruption at {:#x}: expected {:#x}, found {:#x}",
+                self.0, FREE_BLOCK_CANARY, canary,
+            );
+        }
+
+        Self(unsafe { *(virt as *const u64) })
+    }
+
+    /// Write the next pointer into this free block's first 8 bytes via HHDM.
+    ///
+    /// # Safety
+    /// `self` must be a valid, page-aligned physical address with a
+    /// corresponding HHDM virtual mapping. The block must currently be
+    /// on a free list (not allocated to a caller).
+    #[inline]
+    unsafe fn write_next(self, next: FreeBlockPtr) {
+        debug_assert!(!self.is_null(), "[BUDDY] write_next on NULL pointer");
+        let virt = PhysAddr::new(self.0).to_virt().as_u64();
+        debug_assert!(virt % 8 == 0, "[BUDDY] free list pointer not 8-byte aligned: {:#x}", virt);
+
+        unsafe { *(virt as *mut u64) = next.0; }
+
+        #[cfg(debug_assertions)]
+        unsafe { *((virt + 8) as *mut u64) = FREE_BLOCK_CANARY; }
+    }
+}
+
+// --- Buddy Allocator ---
+
 pub struct BuddyAllocator {
-    /// Head of free list per order (physical address, 0 = empty)
-    free_lists: [u64; MAX_ORDER + 1],
+    /// Head of free list per order (typed pointer, NULL = empty)
+    free_lists: [FreeBlockPtr; MAX_ORDER + 1],
     /// 1 bit per frame: 1 = allocated, 0 = free
     bitmap: [u8; BITMAP_SIZE],
     /// Total usable frames
@@ -36,7 +124,7 @@ pub struct BuddyAllocator {
 impl BuddyAllocator {
     pub const fn new() -> Self {
         Self {
-            free_lists: [0; MAX_ORDER + 1],
+            free_lists: [FreeBlockPtr::NULL; MAX_ORDER + 1],
             bitmap: [0xFF; BITMAP_SIZE],
             total_frames: 0,
             free_frames: 0,
@@ -132,52 +220,97 @@ impl BuddyAllocator {
         frame < MAX_FRAMES && (self.bitmap[frame / 8] & (1 << (frame % 8))) == 0
     }
 
-    // --- Free list operations (TD-010) ---
-    //
-    // Intrusive linked list: each free block stores a "next" physical address
-    // in its first 8 bytes, accessed via HHDM. All unsafe pointer operations
-    // are centralized in free_list_read_next / free_list_write_next below.
+    // --- Free list operations (TD-010: typed FreeBlockPtr) ---
 
     fn push_free_list(&mut self, frame: usize, order: usize) {
-        let addr = frame_to_addr(frame);
-        // SAFETY: addr is page-aligned (from frame_to_addr), mapped via HHDM.
-        unsafe { free_list_write_next(addr, self.free_lists[order]); }
-        self.free_lists[order] = addr;
+        debug_assert!(self.is_free(frame), "[BUDDY] push_free_list: frame {} not free in bitmap", frame);
+        let ptr = FreeBlockPtr::from_frame(frame);
+        // SAFETY: ptr is page-aligned (from frame index), mapped via HHDM,
+        // and bitmap confirms block is free.
+        unsafe { ptr.write_next(self.free_lists[order]); }
+        self.free_lists[order] = ptr;
     }
 
     fn pop_free_list(&mut self, order: usize) -> Option<usize> {
-        let addr = self.free_lists[order];
-        if addr == 0 { return None; }
-        // SAFETY: addr was stored by push_free_list from a valid frame.
-        self.free_lists[order] = unsafe { free_list_read_next(addr) };
-        Some(addr as usize / PAGE_SIZE)
+        let head = self.free_lists[order];
+        if head.is_null() { return None; }
+        let frame = head.to_frame();
+        debug_assert!(self.is_free(frame), "[BUDDY] pop_free_list: frame {} not free in bitmap", frame);
+        // SAFETY: head was stored by push_free_list from a valid frame.
+        self.free_lists[order] = unsafe { head.read_next() };
+        Some(frame)
     }
 
     fn remove_from_free_list(&mut self, frame: usize, order: usize) -> bool {
-        let target = frame_to_addr(frame);
-        if self.free_lists[order] == 0 { return false; }
+        let target = FreeBlockPtr::from_frame(frame);
+        debug_assert!(self.is_free(frame), "[BUDDY] remove_from_free_list: frame {} not free in bitmap", frame);
+
+        if self.free_lists[order].is_null() { return false; }
 
         // Head removal
         if self.free_lists[order] == target {
-            // SAFETY: target is page-aligned from frame_to_addr.
-            self.free_lists[order] = unsafe { free_list_read_next(target) };
+            // SAFETY: target is page-aligned from frame index.
+            self.free_lists[order] = unsafe { target.read_next() };
             return true;
         }
 
-        // Walk to find and unlink target
+        // Walk to find and unlink target (bounded to prevent infinite loop)
         let mut current = self.free_lists[order];
-        while current != 0 {
+        let mut iterations = 0usize;
+        while !current.is_null() {
+            iterations += 1;
+            if iterations > MAX_FRAMES {
+                panic!("[BUDDY] free list cycle detected at order {} after {} iterations", order, iterations);
+            }
             // SAFETY: current was stored by push_free_list from a valid frame.
-            let next = unsafe { free_list_read_next(current) };
+            let next = unsafe { current.read_next() };
             if next == target {
                 // SAFETY: target/current are valid page-aligned addresses.
-                let target_next = unsafe { free_list_read_next(target) };
-                unsafe { free_list_write_next(current, target_next); }
+                let target_next = unsafe { target.read_next() };
+                unsafe { current.write_next(target_next); }
                 return true;
             }
             current = next;
         }
         false
+    }
+
+    // --- Debug integrity checker (TD-010) ---
+
+    /// Verify all free lists for consistency (debug builds only).
+    ///
+    /// Checks: page alignment, bounds, canary integrity, bitmap agreement,
+    /// and cycle detection. Expensive — called from allocate/deallocate in
+    /// debug builds.
+    #[cfg(debug_assertions)]
+    fn verify_free_lists(&self) {
+        for order in 0..=MAX_ORDER {
+            let mut current = self.free_lists[order];
+            let mut count = 0usize;
+            while !current.is_null() {
+                count += 1;
+                if count > MAX_FRAMES {
+                    panic!("[BUDDY] verify: cycle in order {} after {} nodes", order, count);
+                }
+
+                // Bounds check
+                let phys = current.0;
+                assert!(
+                    phys < MAX_PHYS_ADDR && phys % PAGE_SIZE as u64 == 0,
+                    "[BUDDY] verify: bad address {:#x} in order {} list", phys, order
+                );
+
+                // Bitmap check — block should be free
+                let frame = current.to_frame();
+                assert!(
+                    self.is_free(frame),
+                    "[BUDDY] verify: frame {} in order {} list but bitmap says allocated", frame, order
+                );
+
+                // Advance (read_next also checks canary in debug)
+                current = unsafe { current.read_next() };
+            }
+        }
     }
 
     // --- Public API ---
@@ -188,10 +321,13 @@ impl BuddyAllocator {
             return None;
         }
 
+        #[cfg(debug_assertions)]
+        self.verify_free_lists();
+
         // Find smallest available order >= requested
         let mut avail_order = order;
         while avail_order <= MAX_ORDER {
-            if self.free_lists[avail_order] != 0 {
+            if !self.free_lists[avail_order].is_null() {
                 break;
             }
             avail_order += 1;
@@ -218,7 +354,7 @@ impl BuddyAllocator {
         }
         self.free_frames -= count;
 
-        Some(PhysAddr::new(frame_to_addr(frame)))
+        Some(PhysAddr::new(FreeBlockPtr::from_frame(frame).0))
     }
 
     /// Deallocate a block of 2^order frames
@@ -265,6 +401,9 @@ impl BuddyAllocator {
 
         // Add merged block to free list
         self.push_free_list(current_frame, current_order);
+
+        #[cfg(debug_assertions)]
+        self.verify_free_lists();
     }
 
     pub fn available_frames(&self) -> usize {
@@ -280,44 +419,7 @@ impl BuddyAllocator {
     }
 }
 
-// --- Intrusive free-list pointer helpers (TD-010) ---
-//
-// All unsafe raw-pointer access for the free list is centralized here.
-// Free blocks store a "next" physical address in their first 8 bytes,
-// accessed via HHDM virtual mapping. Page-aligned addresses guarantee
-// 8-byte alignment for the u64 read/write.
-
-/// Read the "next" physical address from a free block's first 8 bytes.
-///
-/// # Safety
-/// `phys_addr` must be a valid, page-aligned physical address with a
-/// corresponding HHDM virtual mapping. The block must currently be on
-/// a free list (not allocated to a caller).
-#[inline]
-unsafe fn free_list_read_next(phys_addr: u64) -> u64 {
-    let virt = PhysAddr::new(phys_addr).to_virt().as_u64();
-    debug_assert!(virt % 8 == 0, "free list pointer not 8-byte aligned: {:#x}", virt);
-    unsafe { *(virt as *const u64) }
-}
-
-/// Write the "next" physical address into a free block's first 8 bytes.
-///
-/// # Safety
-/// `phys_addr` must be a valid, page-aligned physical address with a
-/// corresponding HHDM virtual mapping. The block must currently be on
-/// a free list (not allocated to a caller).
-#[inline]
-unsafe fn free_list_write_next(phys_addr: u64, next: u64) {
-    let virt = PhysAddr::new(phys_addr).to_virt().as_u64();
-    debug_assert!(virt % 8 == 0, "free list pointer not 8-byte aligned: {:#x}", virt);
-    unsafe { *(virt as *mut u64) = next; }
-}
-
 // --- Module-level helpers ---
-
-fn frame_to_addr(frame: usize) -> u64 {
-    (frame * PAGE_SIZE) as u64
-}
 
 fn ceil_div(a: usize, b: usize) -> usize {
     (a + b - 1) / b

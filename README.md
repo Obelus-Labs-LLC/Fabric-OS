@@ -11,7 +11,7 @@
 
 | | |
 |:---|:---|
-| **Current State** | 24 kernel phases complete (0-20A + 21a-b + TD-008/021/003), all SRI 100/100. Lock ordering enforced. |
+| **Current State** | 25 kernel phases complete (0-20A + 21a-b + TD-008/021/003/010), all SRI 100/100. Lock ordering enforced. |
 | **Kernel LOC** | ~32K lines Rust + 2.3K V8 platform, zero errors, boots clean |
 | **Key Milestone** | Phase 21a: xHCI USB 3.0 controller operational. L13.5: V8 Platform Interface complete. |
 | **Timeline** | Completion-based, not calendar. |
@@ -1381,7 +1381,7 @@ Tracked explicitly. Every item has an introduction phase, target resolution phas
 | TD-007 | README claimed ~50K LOC (actual ~12K at Phase 5B) | 5B | — | Low | **Fixed** (585a2d0) |
 | TD-008 | `BTreeMap` in capability store allocates on insert — should be fixed-size slab | 5B | 22 | Medium | **Fixed** (2d26b43) |
 | TD-009 | No `#[must_use]` on critical Result types across codebase | 5B | 6 | Low | **Fixed** (Phase 6) |
-| TD-010 | Buddy allocator free-list uses intrusive pointers in free frames — most fragile `unsafe` code | 0 | 22 | High | 🔄 Ongoing |
+| TD-010 | Buddy allocator free-list uses intrusive pointers in free frames — most fragile `unsafe` code | 0 | 22 | High | **Fixed** (TD-010) |
 | TD-011 | Serial output only (COM1 0x3F8) — real laptops need framebuffer console | 0 | 10 | Medium | **Fixed** (Phase 10) |
 | TD-012 | No filesystem — model loading, config, logs all require persistent storage | 5B | 26 | High | 📋 Planned |
 | TD-013 | Network is loopback only — no real NIC, no ARP, no DNS | 9 | 11 | High | Planned |
@@ -1397,9 +1397,9 @@ Tracked explicitly. Every item has an introduction phase, target resolution phas
 
 | Category | Count | Status |
 |:---|:---|:---|
-| Kernel phases complete | 24 (0-20A + 21a-b + TD-008/021/003) | All SRI 100/100 |
+| Kernel phases complete | 25 (0-20A + 21a-b + TD-008/021/003/010) | All SRI 100/100 |
 | Loom phases complete | L0-L28 | Bootstrapped + JS engine integration |
-| Active technical debt | 18 items (9 fixed, 1 critical) | Tracked |
+| Active technical debt | 18 items (10 fixed, 1 critical) | Tracked |
 | Phases to completion | 36 | Planned through v5.0 |
 | Lines of code (kernel) | ~32K + 2.3K V8 platform | Growing |
 | Strategic differentiation | Dual-mode browser, capability security, user sovereignty | Unique |

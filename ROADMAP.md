@@ -18,12 +18,12 @@ AI-coordinated microkernel with capability-based security.
 | 21b | USB Root Hub | ✅ Complete | Root hub emulation, hub device interface |
 | TD-008 | BTreeMap → Fixed Slab | ✅ Complete | Alloc-free FixedMap in capability store |
 | TD-003 | Lock Ordering Enforcement | ✅ Complete | OrderedMutex with debug-only ordering checks (643cf47) |
+| TD-010 | Buddy Allocator Safety | ✅ Complete | FreeBlockPtr typed wrapper, canary, bounded traversal |
 
 ## Immediate Sprint (This Week)
 
 | Phase | Component | Status | Description |
 |:---|:---|:---|:---|
-| TD-010 | Buddy Allocator Safety | ⏳ In Progress | Centralized unsafe helpers, typed pointers |
 | 21c | USB Device Enumeration | 📋 Planned | HID keyboard, control transfers (hardware blocked) |
 | TD-022 | HID Boot Protocol Test | 📋 Planned | 8-byte descriptor validation (needs Dell hardware) |
 
