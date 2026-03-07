@@ -17,6 +17,7 @@ AI-coordinated microkernel with capability-based security.
 | TD-021 | TRB Cycle Bit Fix | ✅ Complete | Hardware race condition fix |
 | 21b | USB Root Hub | ✅ Complete | Root hub emulation, hub device interface |
 | TD-008 | BTreeMap → Fixed Slab | ✅ Complete | Alloc-free FixedMap in capability store |
+| BUGFIX | Heap Address Collision | ✅ Complete | Fixed QEMU 8.2.2 + OVMF heap mapping conflict |
 | TD-003 | Lock Ordering Enforcement | ✅ Complete | OrderedMutex with debug-only ordering checks (643cf47) |
 | TD-010 | Buddy Allocator Safety | ✅ Complete | FreeBlockPtr typed wrapper, canary, bounded traversal |
 
@@ -69,5 +70,5 @@ AI-coordinated microkernel with capability-based security.
 
 ---
 
-*Last updated: 2026-03-05*
+*Last updated: 2026-03-06*
 *Version: 5.0*
