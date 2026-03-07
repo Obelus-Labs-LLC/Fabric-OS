@@ -7,7 +7,10 @@ use crate::memory::{frame, mapper};
 use crate::serial_println;
 
 /// Heap starts after the kernel's mapped region
-pub const HEAP_START: u64 = 0xFFFF_FFFF_8040_0000;
+/// Changed from 0xFFFF_FFFF_8040_0000 to 0xFFFF_FFFF_A000_0000 to avoid
+/// collision with kernel image in QEMU 8.2.2 + OVMF environment.
+/// Bug: map failed: AlreadyMapped on Dell Inspiron 5558 build slave.
+pub const HEAP_START: u64 = 0xFFFF_FFFF_A000_0000;
 /// 16 MiB heap — accommodates capabilities, buses, processes, VFS, network,
 /// and display back buffer (up to ~4 MiB for 1280x800@32bpp).
 pub const HEAP_SIZE: usize = 16 * 1024 * 1024;
