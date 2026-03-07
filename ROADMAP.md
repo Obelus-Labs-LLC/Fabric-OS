@@ -34,8 +34,8 @@ AI-coordinated microkernel with capability-based security.
 |:---|:---|:---|:---|
 | 22 | NVMe Driver | 📋 Planned | SSD driver with AHCI fallback |
 | 23 | GPU Modesetting | 📋 Planned | Intel i915 framebuffer |
-| L13.6 | V8 Cross-Compile | 📋 Planned | Build V8 for x86_64-unknown-none |
-| L13.7 | V8 Link Test | 📋 Planned | Verify V8 + platform interface |
+| L13.6 | V8 Cross-Compile | 🚧 In Progress | Build V8 for x86_64-unknown-none |
+| L13.7 | V8 Link Test | 🚧 In Progress | Verify V8 + platform interface |
 
 ## Medium-Term (Months 2-3)
 
